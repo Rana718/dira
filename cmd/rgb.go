@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Rana718/dira/internal/state"
+
 	"github.com/spf13/cobra"
 )
 
@@ -79,7 +81,10 @@ var keycolorCmd = &cobra.Command{
 			return fmt.Errorf("provide hex or R G B")
 		}
 
-		mode, speed, sv := "static", "med", 0
+		// use active mode as base; override only if -m was passed
+		mode := state.GetActiveMode()
+		speed := "med"
+		sv := 0
 
 		if cmd.Flags().Changed("m") {
 			if mode, err = pick("Animation mode", modes); err != nil {
@@ -90,6 +95,15 @@ var keycolorCmd = &cobra.Command{
 			if speed, err = pick("Animation speed", speeds); err != nil {
 				return err
 			}
+		} else {
+			// load saved speed for this mode
+			s, _ := state.Load(mode)
+			for k, v := range speedVal {
+				if v == s.Speed {
+					speed = k
+					break
+				}
+			}
 		}
 		if cmd.Flags().Changed("save") {
 			sv = 1
@@ -98,6 +112,12 @@ var keycolorCmd = &cobra.Command{
 		if err := sysWrite(sysBase+"/kbd_rgb_mode", rgbVal(modeVal[mode], int(r), int(g), int(b), speedVal[speed], sv)); err != nil {
 			return err
 		}
+
+		_ = state.Save(mode, int(r), int(g), int(b), speedVal[speed])
+		if cmd.Flags().Changed("m") {
+			_ = state.SetActiveMode(mode)
+		}
+
 		fmt.Printf("color #%02x%02x%02x  mode=%s  speed=%s  save=%v\n", r, g, b, mode, speed, sv == 1)
 		return nil
 	},
@@ -112,10 +132,13 @@ var keymodeCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if err := sysWrite(sysBase+"/kbd_rgb_mode", rgbVal(modeVal[chosen], 255, 255, 255, 1, 0)); err != nil {
+
+		s, _ := state.Load(chosen)
+		if err := sysWrite(sysBase+"/kbd_rgb_mode", rgbVal(modeVal[chosen], s.R, s.G, s.B, s.Speed, 0)); err != nil {
 			return err
 		}
-		fmt.Printf("mode = %s\n", chosen)
+		_ = state.SetActiveMode(chosen)
+		fmt.Printf("mode = %s  color=#%02x%02x%02x  speed=%d\n", chosen, s.R, s.G, s.B, s.Speed)
 		return nil
 	},
 }
