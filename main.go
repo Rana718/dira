@@ -1,6 +1,6 @@
 package main
 
-import "dira/cmd"
+import "github.com/Rana718/dira/cmd"
 
 var version = "0.1.0"
 
