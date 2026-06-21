@@ -21,5 +21,5 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.AddCommand(keycolorCmd, keymodeCmd, keyspeedCmd, keylightCmd, keystateCmd, underclockCmd, underclockResetCmd)
+	rootCmd.AddCommand(keycolorCmd, keymodeCmd, keyspeedCmd, keylightCmd, keystateCmd, powerCmd)
 }
