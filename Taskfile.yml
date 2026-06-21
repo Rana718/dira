@@ -1,0 +1,36 @@
+version: "3"
+
+vars:
+  BINARY: dira
+  BUILD_DIR: build
+
+tasks:
+  # DEV
+
+  build:
+    desc: Build development binary 
+    cmds:
+      - go build
+
+  install:
+    desc: Build and install dev binary to $GOPATH/bin
+    cmds:
+      - task: build
+      - go install
+  
+  pkg-update:
+    desc: Update all mod files with latest versions
+    cmds:
+      - go get -u ./... && go mod tidy
+
+  fmt:
+    desc: Format code
+    cmds:
+      - go fmt ./...
+      - echo "Code formatted"
+
+  lint:
+    desc: Run linter
+    cmds:
+      - golangci-lint run
+      - echo "Linting complete"
