@@ -16,71 +16,66 @@ import (
 // ── Types ────────────────────────────────────────────────────────────────────
 
 type Profile struct {
-	Name        string
-	CPUMaxMHz   int // 0 = no limit
-	PL1Watts    int // long-term TDP, 0 = no limit
-	PL2Watts    int // short-term TDP, 0 = no limit
-	GPUMaxMHz   int // 0 = no limit
-	GPUWatts    int // 0 = no limit
-	GNOMEPolicy string
+	Name      string
+	CPUMaxMHz int // 0 = no limit
+	PL1Watts  int // long-term TDP, 0 = no limit
+	PL2Watts  int // short-term TDP, 0 = no limit
+	GPUMaxMHz int // 0 = no limit
+	GPUWatts  int // 0 = no limit
 }
 
 type SysInfo struct {
-	CPUMinMHz    int
-	CPUMaxMHz    int
-	CPUCurMHz    int
-	CPUGovernor  string
-	PL1Watts     int
-	PL2Watts     int
-	GPUName      string
-	GPUCurMHz    int
-	GPUMaxMHz    int
-	GPUWatts     float64
-	GPUMaxWatts  float64
-	GPUTemp      int
-	CPUFanRPM    int
-	GPUFanRPM    int
-	CPUTempPkg   int
+	CPUMinMHz   int
+	CPUMaxMHz   int
+	CPUCurMHz   int
+	CPUGovernor string
+	PL1Watts    int
+	PL2Watts    int
+	GPUName     string
+	GPUCurMHz   int
+	GPUMaxMHz   int
+	GPUWatts    float64
+	GPUMaxWatts float64
+	GPUTemp     int
+	CPUFanRPM   int
+	GPUFanRPM   int
+	CPUTempPkg  int
 }
 
 // ── Built-in profiles ────────────────────────────────────────────────────────
 
 var BuiltinProfiles = []Profile{
 	{
-		Name:        "performance",
-		CPUMaxMHz:   4500,
-		PL1Watts:    45,
-		PL2Watts:    60,
-		GPUMaxMHz:   0,
-		GPUWatts:    75,
-		GNOMEPolicy: "performance",
+		Name:      "performance",
+		CPUMaxMHz: 4500,
+		PL1Watts:  45,
+		PL2Watts:  60,
+		GPUMaxMHz: 0,
+		GPUWatts:  75,
 	},
 	{
-		Name:        "balanced",
-		CPUMaxMHz:   4500,
-		PL1Watts:    35,
-		PL2Watts:    50,
-		GPUMaxMHz:   0,
-		GPUWatts:    60,
-		GNOMEPolicy: "balanced",
+		Name:      "balanced",
+		CPUMaxMHz: 4500,
+		PL1Watts:  35,
+		PL2Watts:  50,
+		GPUMaxMHz: 0,
+		GPUWatts:  60,
 	},
 	{
-		Name:        "underclock",
-		CPUMaxMHz:   4000,
-		PL1Watts:    25,
-		PL2Watts:    35,
-		GPUMaxMHz:   1500,
-		GPUWatts:    50,
-		GNOMEPolicy: "power-saver",
+		Name:      "underclock",
+		CPUMaxMHz: 4000,
+		PL1Watts:  25,
+		PL2Watts:  35,
+		GPUMaxMHz: 1500,
+		GPUWatts:  50,
 	},
 	{
-		Name:        "power-saver",
-		CPUMaxMHz:   2000,
-		PL1Watts:    15,
-		PL2Watts:    20,
-		GPUMaxMHz:   1000,
-		GPUWatts:    30,
-		GNOMEPolicy: "power-saver",
+		Name:      "power-saver",
+		CPUMaxMHz: 2000,
+		PL1Watts:  15,
+		PL2Watts:  20,
+		GPUMaxMHz: 1000,
+		GPUWatts:  30,
 	},
 }
 
@@ -103,8 +98,7 @@ func openDB() (*sql.DB, error) {
 			pl1_watts   INTEGER,
 			pl2_watts   INTEGER,
 			gpu_max_mhz INTEGER,
-			gpu_watts   INTEGER,
-			gnome_policy TEXT
+			gpu_watts   INTEGER
 		);
 		CREATE TABLE IF NOT EXISTS power_active (
 			id   INTEGER PRIMARY KEY CHECK(id=1),
@@ -122,12 +116,12 @@ func SaveCustomProfile(p Profile) error {
 	}
 	defer db.Close()
 	_, err = db.Exec(`
-		INSERT INTO power_profiles(name,cpu_max_mhz,pl1_watts,pl2_watts,gpu_max_mhz,gpu_watts,gnome_policy)
-		VALUES(?,?,?,?,?,?,?)
+		INSERT INTO power_profiles(name,cpu_max_mhz,pl1_watts,pl2_watts,gpu_max_mhz,gpu_watts)
+		VALUES(?,?,?,?,?,?)
 		ON CONFLICT(name) DO UPDATE SET
-			cpu_max_mhz=?,pl1_watts=?,pl2_watts=?,gpu_max_mhz=?,gpu_watts=?,gnome_policy=?`,
-		p.Name, p.CPUMaxMHz, p.PL1Watts, p.PL2Watts, p.GPUMaxMHz, p.GPUWatts, p.GNOMEPolicy,
-		p.CPUMaxMHz, p.PL1Watts, p.PL2Watts, p.GPUMaxMHz, p.GPUWatts, p.GNOMEPolicy,
+			cpu_max_mhz=?,pl1_watts=?,pl2_watts=?,gpu_max_mhz=?,gpu_watts=?`,
+		p.Name, p.CPUMaxMHz, p.PL1Watts, p.PL2Watts, p.GPUMaxMHz, p.GPUWatts,
+		p.CPUMaxMHz, p.PL1Watts, p.PL2Watts, p.GPUMaxMHz, p.GPUWatts,
 	)
 	return err
 }
@@ -138,7 +132,7 @@ func LoadCustomProfiles() ([]Profile, error) {
 		return nil, err
 	}
 	defer db.Close()
-	rows, err := db.Query(`SELECT name,cpu_max_mhz,pl1_watts,pl2_watts,gpu_max_mhz,gpu_watts,gnome_policy FROM power_profiles`)
+	rows, err := db.Query(`SELECT name,cpu_max_mhz,pl1_watts,pl2_watts,gpu_max_mhz,gpu_watts FROM power_profiles`)
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +140,7 @@ func LoadCustomProfiles() ([]Profile, error) {
 	var out []Profile
 	for rows.Next() {
 		var p Profile
-		if err := rows.Scan(&p.Name, &p.CPUMaxMHz, &p.PL1Watts, &p.PL2Watts, &p.GPUMaxMHz, &p.GPUWatts, &p.GNOMEPolicy); err != nil {
+		if err := rows.Scan(&p.Name, &p.CPUMaxMHz, &p.PL1Watts, &p.PL2Watts, &p.GPUMaxMHz, &p.GPUWatts); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
@@ -187,10 +181,6 @@ func runSudo(name string, args ...string) error {
 }
 
 func Apply(p Profile) error {
-	if p.GNOMEPolicy != "" {
-		run("powerprofilesctl", "set", p.GNOMEPolicy) //nolint:errcheck
-	}
-
 	if p.CPUMaxMHz > 0 {
 		runSudo("cpupower", "frequency-set", "-u", fmt.Sprintf("%dMHz", p.CPUMaxMHz)) //nolint:errcheck
 	}
@@ -206,12 +196,11 @@ func Apply(p Profile) error {
 	}
 
 	if p.GPUMaxMHz > 0 {
-		runSudo("nvidia-smi", fmt.Sprintf("--lock-gpu-clocks=800,%d", p.GPUMaxMHz)) //nolint:errcheck
+		runSudo("nvidia-smi", fmt.Sprintf("--lock-gpu-clocks=1100,%d", p.GPUMaxMHz)) //nolint:errcheck
 	} else {
 		runSudo("nvidia-smi", "--reset-gpu-clocks") //nolint:errcheck
 	}
 	if p.GPUWatts > 0 {
-		// silently ignore — not supported on laptop GPUs (BIOS-controlled)
 		_ = runSudo("nvidia-smi", fmt.Sprintf("--power-limit=%d", p.GPUWatts))
 	}
 
@@ -234,7 +223,6 @@ func ReadSysInfo() SysInfo {
 	s.CPUFanRPM = readIntFile("/sys/class/hwmon/hwmon5/fan1_input")
 	s.GPUFanRPM = readIntFile("/sys/class/hwmon/hwmon5/fan2_input")
 
-	// GPU via nvidia-smi
 	out, err := exec.Command("nvidia-smi",
 		"--query-gpu=name,clocks.gr,clocks.max.gr,power.draw,power.max_limit,temperature.gpu",
 		"--format=csv,noheader,nounits").Output()
@@ -278,10 +266,6 @@ func sudoWrite(path, value string) {
 	cmd := exec.Command("sudo", "python3", "-c", script)
 	cmd.Stderr = os.Stderr
 	_ = cmd.Run()
-}
-
-func writeFile(path, value string) {
-	os.WriteFile(path, []byte(value), 0644) //nolint:errcheck
 }
 
 func run(name string, args ...string) error {

@@ -230,7 +230,6 @@ func (m powerModel) viewPicker() string {
 		s += row("CPU PL2 (short)", fmt.Sprintf("%d W", hovered.PL2Watts))
 		s += row("GPU max clock", gpuMax)
 		s += row("GPU power limit", fmt.Sprintf("%d W", hovered.GPUWatts))
-		s += row("GNOME policy", hovered.GNOMEPolicy)
 	}
 
 	// live system info
@@ -284,7 +283,6 @@ func defaultCustomFields() []customField {
 		{label: "PL2 watts (short)", key: "pl2", value: "45"},
 		{label: "GPU max MHz (0=off)", key: "gpu_max_mhz", value: "0"},
 		{label: "GPU watts (0=off)", key: "gpu_watts", value: "60"},
-		{label: "GNOME policy", key: "gnome", value: "balanced"},
 	}
 }
 
@@ -324,7 +322,6 @@ func buildProfile(fields []customField) (power.Profile, error) {
 		PL2Watts:    pl2,
 		GPUMaxMHz:   gpu,
 		GPUWatts:    gpuW,
-		GNOMEPolicy: m["gnome"],
 	}, nil
 }
 
