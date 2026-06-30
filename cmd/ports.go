@@ -17,6 +17,8 @@ import (
 var (
 	portsPublicOnly bool
 	portsLocalOnly  bool
+	portsUDPOnly    bool
+	portsTCPOnly    bool
 )
 
 var (
@@ -25,7 +27,48 @@ var (
 	plStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
 	procStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
 	unknStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Italic(true)
+	warnStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
+	udpStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
 )
+
+// well-known ports with descriptions
+var knownPorts = map[int]string{
+	21:    "FTP",
+	22:    "SSH",
+	23:    "Telnet ⚠",
+	25:    "SMTP",
+	53:    "DNS",
+	80:    "HTTP",
+	110:   "POP3",
+	111:   "RPC ⚠",
+	135:   "MSRPC ⚠",
+	137:   "NetBIOS ⚠",
+	138:   "NetBIOS ⚠",
+	139:   "NetBIOS ⚠",
+	143:   "IMAP",
+	443:   "HTTPS",
+	445:   "SMB ⚠",
+	3306:  "MySQL",
+	3389:  "RDP ⚠",
+	4444:  "Metasploit ⚠⚠",
+	5353:  "mDNS",
+	5355:  "LLMNR",
+	5432:  "PostgreSQL",
+	5900:  "VNC ⚠",
+	6379:  "Redis",
+	6443:  "Kubernetes API",
+	8080:  "HTTP alt",
+	8443:  "HTTPS alt",
+	9200:  "Elasticsearch",
+	27017: "MongoDB",
+	41641: "Tailscale",
+}
+
+// ports that are suspicious if exposed publicly
+var suspiciousPorts = map[int]bool{
+	23: true, 111: true, 135: true, 137: true, 138: true,
+	139: true, 445: true, 3389: true, 4444: true, 5900: true,
+}
 
 type portEntry struct {
 	proto   string
@@ -34,21 +77,38 @@ type portEntry struct {
 	process string
 	pid     string
 	public  bool
+	service string
+	warn    bool
 }
 
 var portsCmd = &cobra.Command{
 	Use:   "ports",
 	Short: "Show listening ports and their processes",
-	Example: `  dira ports        # all
-  dira ports -p     # public only (0.0.0.0 / ::)
-  dira ports -l     # local only (127.x)`,
+	Example: `  dira ports          # all (TCP + UDP)
+  dira ports -p       # public only (0.0.0.0 / ::)
+  dira ports -l       # local only (127.x)
+  dira ports --tcp    # TCP only
+  dira ports --udp    # UDP only`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		entries, err := scanPorts()
-		if err != nil {
-			return err
+		var entries []portEntry
+
+		if !portsUDPOnly {
+			tcp, err := scanSockets("tcp")
+			if err != nil {
+				return err
+			}
+			entries = append(entries, tcp...)
+		}
+		if !portsTCPOnly {
+			udp, err := scanSockets("udp")
+			if err != nil {
+				return err
+			}
+			entries = append(entries, udp...)
 		}
 
+		// filter
 		var filtered []portEntry
 		for _, e := range entries {
 			if portsPublicOnly && !e.public {
@@ -65,28 +125,38 @@ var portsCmd = &cobra.Command{
 			return nil
 		}
 
+		// sort: public first, then by port
+		sort.Slice(filtered, func(i, j int) bool {
+			if filtered[i].public != filtered[j].public {
+				return filtered[i].public
+			}
+			return filtered[i].port < filtered[j].port
+		})
+
 		// column widths
-		maxPort, maxAddr, maxProc, maxPid := 4, 7, 7, 5
+		maxPort, maxAddr, maxProc, maxSvc := 4, 7, 7, 7
 		for _, e := range filtered {
-			if len(strconv.Itoa(e.port)) > maxPort {
-				maxPort = len(strconv.Itoa(e.port))
+			if l := len(strconv.Itoa(e.port)); l > maxPort {
+				maxPort = l
 			}
-			if len(e.addr) > maxAddr {
-				maxAddr = len(e.addr)
+			if l := len(e.addr); l > maxAddr {
+				maxAddr = l
 			}
-			if len(e.process) > maxProc {
-				maxProc = len(e.process)
+			if l := len(e.process); l > maxProc {
+				maxProc = l
 			}
-			if len(e.pid) > maxPid {
-				maxPid = len(e.pid)
+			if l := len(e.service); l > maxSvc {
+				maxSvc = l
 			}
 		}
 
 		// header
-		hFmt := fmt.Sprintf("  %%-%ds  %%-%ds  %%-%ds  %%-%ds  %%s", 5, maxPort, maxAddr, maxProc)
-		divider := "  " + strings.Repeat("─", 5+maxPort+maxAddr+maxProc+maxPid+14)
-		fmt.Println(phStyle.Render(fmt.Sprintf(hFmt, "PROTO", "PORT", "ADDRESS", "PROCESS", "PID")))
-		fmt.Println(phStyle.Render(divider))
+		header := fmt.Sprintf("  %-5s  %-5s  %-*s  %-*s  %-*s  %s",
+			"PROTO", "PORT", maxPort, "", maxAddr, "ADDRESS", maxProc, "PROCESS", "SERVICE / PID")
+		fmt.Println(phStyle.Render(fmt.Sprintf("  %-5s  %-*s  %-*s  %-*s  %s",
+			"PROTO", maxPort, "PORT", maxAddr, "ADDRESS", maxProc, "PROCESS", "SERVICE / PID")))
+		_ = header
+		fmt.Println(phStyle.Render("  " + strings.Repeat("─", 5+maxPort+maxAddr+maxProc+maxSvc+18)))
 
 		var public, local []portEntry
 		for _, e := range filtered {
@@ -97,40 +167,51 @@ var portsCmd = &cobra.Command{
 			}
 		}
 
-		printRows := func(rows []portEntry, public bool) {
+		printRows := func(rows []portEntry, isPublic bool) {
 			for _, e := range rows {
-				proto   := pad(e.proto, 5)
-				port    := pad(strconv.Itoa(e.port), maxPort)
-				addr    := pad(e.addr, maxAddr)
-				process := pad(e.process, maxProc)
-				pid     := e.pid
-				if pid == "" {
-					pid = "—"
+				protoStr := pad(e.proto, 5)
+				portStr  := pad(strconv.Itoa(e.port), maxPort)
+				addrStr  := pad(e.addr, maxAddr)
+				procStr  := pad(e.process, maxProc)
+
+				svcPid := ""
+				if e.service != "" {
+					svcPid = e.service
+				}
+				if e.pid != "" {
+					if svcPid != "" {
+						svcPid += "  "
+					}
+					svcPid += "pid " + e.pid
 				}
 
-				if public {
-					fmt.Printf("  %s  %s  %s  %s  %s\n",
-						ppStyle.Render(proto),
-						ppStyle.Render(port),
-						ppStyle.Render(addr),
-						procStyle.Render(process),
-						plStyle.Render(pid),
-					)
+				// color selection
+				var protoC, portC, addrC lipgloss.Style
+				if e.proto == "udp" {
+					protoC, portC, addrC = udpStyle, udpStyle, udpStyle
+				} else if isPublic {
+					protoC, portC, addrC = ppStyle, ppStyle, ppStyle
 				} else {
-					pStr := process
-					if e.process == "unknown" {
-						pStr = unknStyle.Render(process)
-					} else {
-						pStr = procStyle.Render(process)
-					}
-					fmt.Printf("  %s  %s  %s  %s  %s\n",
-						plStyle.Render(proto),
-						plStyle.Render(port),
-						plStyle.Render(addr),
-						pStr,
-						plStyle.Render(pid),
-					)
+					protoC, portC, addrC = plStyle, plStyle, plStyle
 				}
+
+				pStr := procStyle.Render(procStr)
+				if e.process == "unknown" {
+					pStr = unknStyle.Render(procStr)
+				}
+
+				svStr := plStyle.Render(svcPid)
+				if e.warn && isPublic {
+					svStr = warnStyle.Render(svcPid + "  ⚠ suspicious public port")
+				}
+
+				fmt.Printf("  %s  %s  %s  %s  %s\n",
+					protoC.Render(protoStr),
+					portC.Render(portStr),
+					addrC.Render(addrStr),
+					pStr,
+					svStr,
+				)
 			}
 		}
 
@@ -163,16 +244,17 @@ func pad(s string, width int) string {
 	return s + strings.Repeat(" ", width-len(s))
 }
 
-func scanPorts() ([]portEntry, error) {
-	// try sudo first for full process info, fall back to non-sudo
-	var out []byte
-	var err error
+func scanSockets(proto string) ([]portEntry, error) {
+	flag := "-tlnp"
+	if proto == "udp" {
+		flag = "-ulnp"
+	}
 
-	sudoCmd := exec.Command("sudo", "ss", "-tlnp")
+	sudoCmd := exec.Command("sudo", "ss", flag)
 	sudoCmd.Stdin = os.Stdin
-	out, err = sudoCmd.Output()
+	out, err := sudoCmd.Output()
 	if err != nil {
-		out, err = exec.Command("ss", "-tlnp").Output()
+		out, err = exec.Command("ss", flag).Output()
 		if err != nil {
 			return nil, fmt.Errorf("ss not available: %w", err)
 		}
@@ -182,11 +264,13 @@ func scanPorts() ([]portEntry, error) {
 	scanner := bufio.NewScanner(strings.NewReader(string(out)))
 	for scanner.Scan() {
 		line := scanner.Text()
-		if !strings.HasPrefix(line, "LISTEN") {
-			continue
-		}
 		fields := strings.Fields(line)
 		if len(fields) < 5 {
+			continue
+		}
+		state := fields[0]
+		// TCP: LISTEN, UDP: UNCONN
+		if state != "LISTEN" && state != "UNCONN" {
 			continue
 		}
 
@@ -211,23 +295,20 @@ func scanPorts() ([]portEntry, error) {
 		}
 
 		public := addr == "0.0.0.0" || addr == "::" || addr == "*"
+		svc := knownPorts[port]
+		warn := suspiciousPorts[port] && public
 
 		entries = append(entries, portEntry{
-			proto:   "tcp",
+			proto:   proto,
 			addr:    addr,
 			port:    port,
 			process: process,
 			pid:     pid,
 			public:  public,
+			service: svc,
+			warn:    warn,
 		})
 	}
-
-	sort.Slice(entries, func(i, j int) bool {
-		if entries[i].public != entries[j].public {
-			return entries[i].public
-		}
-		return entries[i].port < entries[j].port
-	})
 
 	return entries, nil
 }
@@ -235,4 +316,6 @@ func scanPorts() ([]portEntry, error) {
 func init() {
 	portsCmd.Flags().BoolVarP(&portsPublicOnly, "public", "p", false, "Show public ports only")
 	portsCmd.Flags().BoolVarP(&portsLocalOnly, "local", "l", false, "Show local ports only")
+	portsCmd.Flags().BoolVar(&portsTCPOnly, "tcp", false, "Show TCP only")
+	portsCmd.Flags().BoolVar(&portsUDPOnly, "udp", false, "Show UDP only")
 }
