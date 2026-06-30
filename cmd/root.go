@@ -21,5 +21,5 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.AddCommand(keycolorCmd, keymodeCmd, keyspeedCmd, keylightCmd, keystateCmd, powerCmd, infoCmd, portsCmd)
+	rootCmd.AddCommand(keycolorCmd, keymodeCmd, keyspeedCmd, keylightCmd, keystateCmd, powerCmd, infoCmd, portsCmd, containerCmd)
 }
