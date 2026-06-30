@@ -225,6 +225,20 @@ func (m containerModel) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return contentMsg{text: renderVolumes(info)}
 		}
 
+	case "d":
+		if c == nil {
+			break
+		}
+		if c.Running {
+			m.err = "stop the container first before deleting"
+			break
+		}
+		m.loading = true
+		rt, id := c.Runtime, c.ID
+		return m, func() tea.Msg {
+			return actionDoneMsg{err: container.Delete(rt, id)}
+		}
+
 	case "s":
 		if c == nil || !c.Running {
 			m.err = "container is not running"
@@ -290,8 +304,8 @@ func (m containerModel) View() string {
 func (m containerModel) renderHelp() string {
 	help := [][]string{
 		{"l", "logs"}, {"i", "info"}, {"v", "volumes"},
-		{"s", "stop"}, {"S", "start"}, {"e", "shell"},
-		{"r", "refresh"}, {"q", "quit"},
+		{"s", "stop"}, {"S", "start"}, {"d", "delete"},
+		{"e", "shell"}, {"r", "refresh"}, {"q", "quit"},
 	}
 	var parts []string
 	for _, h := range help {
@@ -327,15 +341,14 @@ func (m containerModel) scrollPct() int {
 }
 
 func (m containerModel) viewList() string {
-	// column widths
-	wName, wID, wImage, wStatus, wRuntime := 18, 12, 38, 11, 8
+	wName, wID, wRuntime, wStatus, wUptime, wPorts := 18, 12, 8, 11, 14, 14
 
-	// header row
 	s := ctHdr.Render(
-		"  "+pad("NAME", wName)+"  "+pad("ID", wID)+"  "+pad("RUNTIME", wRuntime)+"  "+pad("STATUS", wStatus)+"  "+
-			pad("IMAGE", wImage)+"  "+"CPU       MEM",
+		"  "+pad("NAME", wName)+"  "+pad("ID", wID)+"  "+pad("RUNTIME", wRuntime)+
+			"  "+pad("STATUS", wStatus)+"  "+pad("UPTIME", wUptime)+
+			"  "+pad("PORTS", wPorts)+"  CPU        MEM",
 	) + "\n"
-	s += ctBorder.Render("  "+strings.Repeat("─", wName+wID+wRuntime+wStatus+wImage+32)) + "\n"
+	s += ctBorder.Render("  "+strings.Repeat("─", wName+wID+wRuntime+wStatus+wUptime+wPorts+36)) + "\n"
 
 	for i, c := range m.containers {
 		cursor := "  "
@@ -349,33 +362,61 @@ func (m containerModel) viewList() string {
 		if c.Runtime == "podman" {
 			rtLabel = ctPodman.Render(pad("[podman]", wRuntime))
 		}
-
-		status := ctRed.Render(pad("● stopped", wStatus))
+		statusText := pad("  stopped", wStatus)
+		status := ctRed.Render(statusText)
 		if c.Running {
-			status = ctGreen.Render(pad("● running", wStatus))
+			statusText = pad("  running", wStatus)
+			status = ctGreen.Render(statusText)
 		}
 
-		image := c.Image
-		if len(image) > wImage {
-			image = image[:wImage-3] + "..."
+		uptimeStr := c.RunningFor
+		if uptimeStr == "" {
+			uptimeStr = " "
+		}
+		uptimeRunes := len([]rune(uptimeStr))
+		if uptimeRunes < wUptime {
+			uptimeStr = uptimeStr + strings.Repeat(" ", wUptime-uptimeRunes)
 		}
 
-		cpu, mem := ctDim.Render("—"), ctDim.Render("—")
+		portsStr := "—"
+		if c.Ports != "" {
+			portsStr = c.Ports
+		}
+		if len([]rune(portsStr)) > wPorts {
+			portsStr = string([]rune(portsStr)[:wPorts-1]) + "…"
+		}
+		// pad by rune count not byte count
+		runeLen := len([]rune(portsStr))
+		if runeLen < wPorts {
+			portsStr = portsStr + strings.Repeat(" ", wPorts-runeLen)
+		}
+		portColor := ctDim
+		if c.Ports != "" {
+			portColor = ctNet
+		}
+
+		cpuStr := strings.Repeat(" ", 9)
+		memStr := strings.Repeat(" ", 10)
+		cpuColor := ctDim
+		memColor := ctDim
 		if st, ok := m.statsMap[c.ID]; ok && c.Running {
-			cpu = ctCPU.Render(pad(st.CPU, 9))
+			cpuStr = pad(st.CPU, 9)
+			cpuColor = ctCPU
 			memParts := strings.SplitN(st.MemUsage, " / ", 2)
-			mem = ctMem.Render(memParts[0])
+			memStr = pad(memParts[0], 10)
+			memColor = ctMem
 		}
 
-		s += fmt.Sprintf("%s%s  %s  %s  %s  %s  %s  %s\n",
+		s += fmt.Sprintf("%s%s  %s  %s  %s  %s  %s  %s  %s\n",
 			cursor,
 			nameStyle.Render(pad(c.Name, wName)),
 			ctDim.Render(pad(c.ID, wID)),
 			rtLabel,
 			status,
-			ctDim.Render(pad(image, wImage)),
-			cpu,
-			mem,
+			ctValue.Render(uptimeStr),
+			portColor.Render(portsStr),
+			cpuColor.Render(cpuStr),
+			memColor.Render(memStr),
 		)
 	}
 

@@ -8,13 +8,14 @@ import (
 )
 
 type Container struct {
-	ID      string
-	Name    string
-	Image   string
-	Status  string
-	Ports   string
-	Runtime string // "docker" or "podman"
-	Running bool
+	ID         string
+	Name       string
+	Image      string
+	Status     string
+	Ports      string
+	RunningFor string
+	Runtime    string // "docker" or "podman"
+	Running    bool
 }
 
 type Mount struct {
@@ -64,7 +65,7 @@ func List() []Container {
 			continue
 		}
 		b, err := exec.Command(rt, "ps", "-a",
-			"--format", "{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}").Output()
+			"--format", "{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}\t{{.RunningFor}}").Output()
 		if err != nil {
 			continue
 		}
@@ -73,18 +74,19 @@ func List() []Container {
 				continue
 			}
 			parts := strings.Split(line, "\t")
-			for len(parts) < 5 {
+			for len(parts) < 6 {
 				parts = append(parts, "")
 			}
 			running := strings.HasPrefix(strings.ToLower(parts[3]), "up")
 			out = append(out, Container{
-				ID:      parts[0][:min(12, len(parts[0]))],
-				Name:    parts[1],
-				Image:   parts[2],
-				Status:  parts[3],
-				Ports:   parts[4],
-				Runtime: rt,
-				Running: running,
+				ID:         parts[0][:min(12, len(parts[0]))],
+				Name:       parts[1],
+				Image:      parts[2],
+				Status:     parts[3],
+				Ports:      parts[4],
+				RunningFor: parts[5],
+				Runtime:    rt,
+				Running:    running,
 			})
 		}
 	}
@@ -102,6 +104,10 @@ func Stop(rt, id string) error {
 
 func Start(rt, id string) error {
 	return exec.Command(rt, "start", id).Run()
+}
+
+func Delete(rt, id string) error {
+	return exec.Command(rt, "rm", "-f", id).Run()
 }
 
 func GetStats(rt, id string) (Stats, error) {
