@@ -219,9 +219,9 @@ func ReadSysInfo() SysInfo {
 	s.CPUGovernor = readStrFile("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor")
 	s.PL1Watts = readIntFile("/sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uw") / 1_000_000
 	s.PL2Watts = readIntFile("/sys/class/powercap/intel-rapl:0/constraint_1_power_limit_uw") / 1_000_000
-	s.CPUTempPkg = readIntFile("/sys/class/hwmon/hwmon6/temp1_input") / 1000
-	s.CPUFanRPM = readIntFile("/sys/class/hwmon/hwmon5/fan1_input")
-	s.GPUFanRPM = readIntFile("/sys/class/hwmon/hwmon5/fan2_input")
+	s.CPUTempPkg = readIntFile(findHwmon("coretemp")+"/temp1_input") / 1000
+	s.CPUFanRPM = readIntFile(findHwmon("asus")+"/fan1_input")
+	s.GPUFanRPM = readIntFile(findHwmon("asus")+"/fan2_input")
 
 	out, err := exec.Command("nvidia-smi",
 		"--query-gpu=name,clocks.gr,clocks.max.gr,power.draw,power.max_limit,temperature.gpu",
@@ -245,6 +245,9 @@ func ReadSysInfo() SysInfo {
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 func readIntFile(path string) int {
+	if path == "" {
+		return 0
+	}
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return 0
@@ -259,6 +262,16 @@ func readStrFile(path string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(b))
+}
+
+func findHwmon(name string) string {
+	matches, _ := filepath.Glob("/sys/class/hwmon/hwmon*")
+	for _, d := range matches {
+		if readStrFile(d+"/name") == name {
+			return d
+		}
+	}
+	return ""
 }
 
 func sudoWrite(path, value string) {

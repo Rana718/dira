@@ -229,7 +229,9 @@ func gatherGPUs() []GPUInfo {
 }
 
 func gatherRAM() []RAMSlot {
-	out, err := exec.Command("sudo", "dmidecode", "-t", "memory").Output()
+	cmd := exec.Command("sudo", "dmidecode", "-t", "memory")
+	cmd.Stdin = os.Stdin
+	out, err := cmd.Output()
 	if err != nil {
 		return nil
 	}
@@ -308,7 +310,9 @@ func gatherBattery() *BatteryInfo {
 }
 
 func gatherSSD() *SSDInfo {
-	out, err := exec.Command("sudo", "smartctl", "-a", "/dev/nvme0").Output()
+	cmd := exec.Command("sudo", "smartctl", "-a", "/dev/nvme0")
+	cmd.Stdin = os.Stdin
+	out, err := cmd.Output()
 	if err != nil {
 		return nil
 	}
@@ -483,7 +487,9 @@ func intelGPUName() string {
 }
 
 func nvmePCIeSpeed() string {
-	out, err := exec.Command("sudo", "lspci", "-vv").Output()
+	cmd := exec.Command("sudo", "lspci", "-vv")
+	cmd.Stdin = os.Stdin
+	out, err := cmd.Output()
 	if err != nil {
 		return ""
 	}
@@ -503,6 +509,9 @@ func nvmePCIeSpeed() string {
 }
 
 func readSysInt(path string) int {
+	if path == "" {
+		return 0
+	}
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return 0
@@ -512,6 +521,9 @@ func readSysInt(path string) int {
 }
 
 func readSysTrim(path string) string {
+	if path == "" {
+		return ""
+	}
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return ""
@@ -562,7 +574,9 @@ func baseClockMHz(model string) int {
 }
 
 func readDMI(dtype, field string) string {
-	out, err := exec.Command("sudo", "dmidecode", "-t", dtype).Output()
+	cmd := exec.Command("sudo", "dmidecode", "-t", dtype)
+	cmd.Stdin = os.Stdin
+	out, err := cmd.Output()
 	if err != nil {
 		return ""
 	}
