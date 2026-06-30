@@ -341,7 +341,7 @@ func (m containerModel) scrollPct() int {
 }
 
 func (m containerModel) viewList() string {
-	wName, wID, wRuntime, wStatus, wUptime, wPorts := 18, 12, 8, 11, 14, 14
+	wName, wID, wRuntime, wStatus, wUptime, wPorts := 18, 12, 8, 9, 16, 14
 
 	s := ctHdr.Render(
 		"  "+pad("NAME", wName)+"  "+pad("ID", wID)+"  "+pad("RUNTIME", wRuntime)+
@@ -372,6 +372,11 @@ func (m containerModel) viewList() string {
 		uptimeStr := c.RunningFor
 		if uptimeStr == "" {
 			uptimeStr = " "
+		}
+		// strip trailing " ago" to save space, truncate if still too long
+		uptimeStr = strings.TrimSuffix(uptimeStr, " ago")
+		if len([]rune(uptimeStr)) > wUptime {
+			uptimeStr = string([]rune(uptimeStr)[:wUptime-1]) + "…"
 		}
 		uptimeRunes := len([]rune(uptimeStr))
 		if uptimeRunes < wUptime {
