@@ -352,11 +352,11 @@ func gatherSSD() *SSDInfo {
 		case "SMART overall-health self-assessment test result":
 			s.HealthStatus = v
 		case "Percentage Used":
-			fmt.Sscanf(v, "%d", &s.WearPct)
+			fmt.Sscanf(v, "%d", &s.WearPct) //nolint:errcheck
 		case "Available Spare":
-			fmt.Sscanf(v, "%d", &s.SpareAvailPct)
+			fmt.Sscanf(v, "%d", &s.SpareAvailPct) //nolint:errcheck
 		case "Available Spare Threshold":
-			fmt.Sscanf(v, "%d", &s.SpareThreshPct)
+			fmt.Sscanf(v, "%d", &s.SpareThreshPct) //nolint:errcheck
 		case "Data Units Read":
 			s.ReadTB = parseTB(v)
 		case "Data Units Written":

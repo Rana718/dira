@@ -182,7 +182,7 @@ func runSudo(name string, args ...string) error {
 
 func Apply(p Profile) error {
 	if p.CPUMaxMHz > 0 {
-		runSudo("cpupower", "frequency-set", "-u", fmt.Sprintf("%dMHz", p.CPUMaxMHz))
+		runSudo("cpupower", "frequency-set", "-u", fmt.Sprintf("%dMHz", p.CPUMaxMHz)) //nolint:errcheck
 	}
 
 	raplBase := "/sys/class/powercap/intel-rapl:0"
@@ -281,9 +281,3 @@ func sudoWrite(path, value string) {
 	_ = cmd.Run()
 }
 
-func run(name string, args ...string) error {
-	cmd := exec.Command(name, args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
-}
