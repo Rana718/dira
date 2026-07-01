@@ -37,11 +37,3 @@ func FmtBytes(b int64) string {
 		return fmt.Sprintf("%d B", b)
 	}
 }
-
-// MaxInt returns the larger of a or b.
-func MaxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}

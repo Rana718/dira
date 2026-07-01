@@ -44,13 +44,13 @@ type InspectInfo struct {
 }
 
 type ResourceLimits struct {
-	MemoryBytes    int64
+	MemoryBytes     int64
 	MemorySwapBytes int64
-	NanoCPUs       int64   // 1 CPU = 1_000_000_000
-	CPUShares      int64
-	PidsLimit      int64
-	CPUQuota       int64
-	CPUPeriod      int64
+	NanoCPUs        int64 // 1 CPU = 1_000_000_000
+	CPUShares       int64
+	PidsLimit       int64
+	CPUQuota        int64
+	CPUPeriod       int64
 }
 
 func runtimeAvailable(rt string) bool {
@@ -202,11 +202,4 @@ func int64Field(m map[string]any, key string) int64 {
 		return v
 	}
 	return 0
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

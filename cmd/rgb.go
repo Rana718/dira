@@ -3,11 +3,11 @@ package cmd
 import (
 	"encoding/hex"
 	"fmt"
+	"github.com/Rana718/dira/internal/tui"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
-	"github.com/Rana718/dira/internal/tui"
 
 	"github.com/Rana718/dira/internal/state"
 

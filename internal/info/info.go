@@ -10,13 +10,13 @@ import (
 	"strings"
 )
 
-// ── Types ────────────────────────────────────────────────────────────────────
+// ── Types
 
 type CoreTemp struct {
-	Label   string
-	TempC   int
-	MaxC    int
-	CritC   int
+	Label string
+	TempC int
+	MaxC  int
+	CritC int
 }
 
 type CPUInfo struct {
@@ -27,8 +27,8 @@ type CPUInfo struct {
 	MaxMHz    int
 	MinMHz    int
 	CurMHz    float64
-	L1d, L1i string
-	L2, L3   string
+	L1d, L1i  string
+	L2, L3    string
 	Governor  string
 	TempPkg   int
 	TempMaxC  int
@@ -57,11 +57,11 @@ type GPUInfo struct {
 }
 
 type RAMSlot struct {
-	SizeGiB  int
+	SizeGiB   int
 	TypeSpeed string
-	Mfr      string
-	Part     string
-	VoltageV string
+	Mfr       string
+	Part      string
+	VoltageV  string
 }
 
 type BatteryInfo struct {
@@ -125,7 +125,7 @@ type SystemInfo struct {
 	Product string
 }
 
-// ── Gather ───────────────────────────────────────────────────────────────────
+// ── Gather
 
 func Gather() SystemInfo {
 	var s SystemInfo
@@ -457,7 +457,7 @@ func gatherBIOS() BIOSInfo {
 	}
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Helpers
 
 func findHwmon(name string) string {
 	matches, _ := filepath.Glob("/sys/class/hwmon/hwmon*")

@@ -13,15 +13,15 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// ── Types ────────────────────────────────────────────────────────────────────
+// ── Types
 
 type Profile struct {
 	Name      string
-	CPUMaxMHz int // 0 = no limit
-	PL1Watts  int // long-term TDP, 0 = no limit
-	PL2Watts  int // short-term TDP, 0 = no limit
-	GPUMaxMHz int // 0 = no limit
-	GPUWatts  int // 0 = no limit
+	CPUMaxMHz int
+	PL1Watts  int
+	PL2Watts  int
+	GPUMaxMHz int
+	GPUWatts  int
 }
 
 type SysInfo struct {
@@ -42,7 +42,7 @@ type SysInfo struct {
 	CPUTempPkg  int
 }
 
-// ── Built-in profiles ────────────────────────────────────────────────────────
+// ── Built-in profiles
 
 var BuiltinProfiles = []Profile{
 	{
@@ -79,7 +79,7 @@ var BuiltinProfiles = []Profile{
 	},
 }
 
-// ── DB ───────────────────────────────────────────────────────────────────────
+// ── DB
 
 func dbPath() string {
 	dir, _ := os.UserConfigDir()
@@ -171,7 +171,7 @@ func GetActiveProfile() string {
 	return name
 }
 
-// ── Apply ────────────────────────────────────────────────────────────────────
+// ── Apply
 
 func runSudo(name string, args ...string) error {
 	cmd := exec.Command("sudo", append([]string{name}, args...)...)
@@ -182,7 +182,7 @@ func runSudo(name string, args ...string) error {
 
 func Apply(p Profile) error {
 	if p.CPUMaxMHz > 0 {
-		runSudo("cpupower", "frequency-set", "-u", fmt.Sprintf("%dMHz", p.CPUMaxMHz)) //nolint:errcheck
+		runSudo("cpupower", "frequency-set", "-u", fmt.Sprintf("%dMHz", p.CPUMaxMHz))
 	}
 
 	raplBase := "/sys/class/powercap/intel-rapl:0"
@@ -196,9 +196,9 @@ func Apply(p Profile) error {
 	}
 
 	if p.GPUMaxMHz > 0 {
-		runSudo("nvidia-smi", fmt.Sprintf("--lock-gpu-clocks=1100,%d", p.GPUMaxMHz)) //nolint:errcheck
+		runSudo("nvidia-smi", fmt.Sprintf("--lock-gpu-clocks=1100,%d", p.GPUMaxMHz))
 	} else {
-		runSudo("nvidia-smi", "--reset-gpu-clocks") //nolint:errcheck
+		runSudo("nvidia-smi", "--reset-gpu-clocks")
 	}
 	if p.GPUWatts > 0 {
 		_ = runSudo("nvidia-smi", fmt.Sprintf("--power-limit=%d", p.GPUWatts))
@@ -208,7 +208,7 @@ func Apply(p Profile) error {
 	return nil
 }
 
-// ── SysInfo ──────────────────────────────────────────────────────────────────
+// ── SysInfo
 
 func ReadSysInfo() SysInfo {
 	var s SysInfo
@@ -220,8 +220,8 @@ func ReadSysInfo() SysInfo {
 	s.PL1Watts = readIntFile("/sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uw") / 1_000_000
 	s.PL2Watts = readIntFile("/sys/class/powercap/intel-rapl:0/constraint_1_power_limit_uw") / 1_000_000
 	s.CPUTempPkg = readIntFile(findHwmon("coretemp")+"/temp1_input") / 1000
-	s.CPUFanRPM = readIntFile(findHwmon("asus")+"/fan1_input")
-	s.GPUFanRPM = readIntFile(findHwmon("asus")+"/fan2_input")
+	s.CPUFanRPM = readIntFile(findHwmon("asus") + "/fan1_input")
+	s.GPUFanRPM = readIntFile(findHwmon("asus") + "/fan2_input")
 
 	out, err := exec.Command("nvidia-smi",
 		"--query-gpu=name,clocks.gr,clocks.max.gr,power.draw,power.max_limit,temperature.gpu",
@@ -242,7 +242,7 @@ func ReadSysInfo() SysInfo {
 	return s
 }
 
-// ── helpers ──────────────────────────────────────────────────────────────────
+// ── helpers
 
 func readIntFile(path string) int {
 	if path == "" {

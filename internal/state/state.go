@@ -25,7 +25,7 @@ func dbPath() string {
 
 func open() (*sql.DB, error) {
 	p := dbPath()
-	os.MkdirAll(filepath.Dir(p), 0755) //nolint:errcheck
+	os.MkdirAll(filepath.Dir(p), 0755)
 	db, err := sql.Open("sqlite", p)
 	if err != nil {
 		return nil, err

@@ -13,8 +13,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// ── Styles ────────────────────────────────────────────────────────────────────
-
+// ── Styles
 var (
 	ctHdr    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("99"))
 	ctSel    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212"))
@@ -32,7 +31,7 @@ var (
 	ctNet    = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
 )
 
-// ── Messages ──────────────────────────────────────────────────────────────────
+// ── Messages
 
 type Mode int
 
@@ -43,9 +42,9 @@ const (
 	ModeVolumes
 )
 
-type ContentMsg    struct{ Text, Err string }
-type StatsTickMsg  struct{}
-type AllStatsMsg   struct{ Stats map[string]Stats }
+type ContentMsg struct{ Text, Err string }
+type StatsTickMsg struct{}
+type AllStatsMsg struct{ Stats map[string]Stats }
 type ActionDoneMsg struct{ Err error }
 
 func StatsTickCmd() tea.Cmd {
@@ -54,13 +53,13 @@ func StatsTickCmd() tea.Cmd {
 	})
 }
 
-// ── Model ─────────────────────────────────────────────────────────────────────
+// ── Model
 
 type Model struct {
 	Containers []Container
 	StatsMap   map[string]Stats
 	Cursor     int
-	Screen Mode
+	Screen     Mode
 	VP         viewport.Model
 	WinW, WinH int
 	Err        string
@@ -253,7 +252,7 @@ func (m Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// ── Views ─────────────────────────────────────────────────────────────────────
+// ── Views
 
 func (m Model) Render() string {
 	helpBar := m.renderHelp()
@@ -290,7 +289,7 @@ func (m Model) renderHelp() string {
 }
 
 func (m Model) subView(title, helpText string) string {
-	header := ctHdr.Render("── " + title + " " + strings.Repeat("─", helper.MaxInt(0, 44-len(title))))
+	header := ctHdr.Render("── " + title + " " + strings.Repeat("─", max(0, 44-len(title))))
 	scroll := ctDim.Render(fmt.Sprintf(" %d%%", m.scrollPct()))
 	var body string
 	if m.Loading {
@@ -345,14 +344,8 @@ func (m Model) viewList() string {
 		}
 		uptimeStr = helper.PadR(uptimeStr, wUptime)
 
-		portsStr := "—"
-		if c.Ports != "" {
-			portsStr = c.Ports
-		}
-		if len([]rune(portsStr)) > wPorts {
-			portsStr = string([]rune(portsStr)[:wPorts-1]) + "…"
-		}
-		portsStr = helper.PadR(portsStr, wPorts)
+		portsLines := parsePorts(c.Ports, wPorts)
+		firstPort := helper.PadR(portsLines[0], wPorts)
 		portColor := ctDim
 		if c.Ports != "" {
 			portColor = ctNet
@@ -374,10 +367,15 @@ func (m Model) viewList() string {
 			ctDim.Render(helper.Pad(c.ID, wID)),
 			rtLabel, status,
 			ctValue.Render(uptimeStr),
-			portColor.Render(portsStr),
+			portColor.Render(firstPort),
 			cpuColor.Render(cpuStr),
 			memColor.Render(memStr),
 		)
+		// overflow ports — indented to align under PORTS column
+		indent := strings.Repeat(" ", 2+wName+2+wID+2+wRuntime+2+wStatus+2+wUptime+2)
+		for _, extra := range portsLines[1:] {
+			s += indent + portColor.Render(helper.PadR(extra, wPorts)) + "\n"
+		}
 	}
 	if len(m.Containers) == 0 {
 		s += ctDim.Render("  No containers found (docker / podman)") + "\n"
@@ -459,5 +457,62 @@ func RenderVolumes(info InspectInfo) string {
 	return s
 }
 
-// View implements tea.Model.
+// parsePorts parses docker port strings like
+func parsePorts(raw string, wPorts int) []string {
+	if raw == "" {
+		return []string{"—"}
+	}
+
+	seen := map[string]bool{}
+	var unique []string
+	for _, part := range strings.Split(raw, ", ") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		norm := part
+		if strings.HasPrefix(part, "[::]:") {
+			ipv4 := strings.Replace(part, "[::]:", "0.0.0.0:", 1)
+			if seen[ipv4] {
+				continue
+			}
+		}
+		mapped := formatPort(norm)
+		if !seen[mapped] {
+			seen[mapped] = true
+			unique = append(unique, mapped)
+		}
+	}
+
+	if len(unique) == 0 {
+		return []string{"—"}
+	}
+
+	// pack as many as fit on each line
+	var lines []string
+	line := ""
+	for _, p := range unique {
+		if line == "" {
+			line = p
+		} else if len(line)+2+len(p) <= wPorts {
+			line += " " + p
+		} else {
+			lines = append(lines, helper.PadR(line, wPorts))
+			line = p
+		}
+	}
+	if line != "" {
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+func formatPort(s string) string {
+	if idx := strings.LastIndex(s, ":"); idx >= 0 {
+		s = s[idx+1:]
+	}
+	s = strings.Replace(s, "->", "→", 1)
+	return s
+}
+
 func (m Model) View() string { return m.Render() }

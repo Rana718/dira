@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"github.com/Rana718/dira/internal/disk"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/Rana718/dira/internal/helper"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/spf13/cobra"
 )

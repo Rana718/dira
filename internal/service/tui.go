@@ -33,12 +33,12 @@ const (
 )
 
 type ContentMsg struct{ Text, Err string }
-type DoneMsg    struct{ Err error }
+type DoneMsg struct{ Err error }
 
 type Model struct {
 	All, Filtered []Entry
 	Cursor        int
-	Screen Mode
+	Screen        Mode
 	VP, ListVP    viewport.Model
 	WinW, WinH    int
 	Filter        string
@@ -368,7 +368,7 @@ func (m Model) Render() string {
 }
 
 func (m Model) subView(title string) string {
-	p := helper.MaxInt(0, 44-len(title))
+	p := max(0, 44-len(title))
 	header := svcHdr.Render("── " + title + " " + strings.Repeat("─", p))
 	pct := svcDim.Render(fmt.Sprintf(" %d%%", m.scrollPct()))
 	var body string

@@ -14,7 +14,7 @@ type Mount struct {
 	Used   string
 	Avail  string
 	UsePct int
-	Mount  string   // primary mount + "\x00" separated extras
+	Mount  string // primary mount + "\x00" separated extras
 	FSType string
 }
 
