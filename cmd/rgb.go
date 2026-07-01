@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"github.com/Rana718/dira/internal/tui"
 
 	"github.com/Rana718/dira/internal/state"
 
@@ -87,12 +88,12 @@ var keycolorCmd = &cobra.Command{
 		sv := 0
 
 		if cmd.Flags().Changed("m") {
-			if mode, err = pick("Animation mode", modes); err != nil {
+			if mode, err = tui.Pick("Animation mode", modes); err != nil {
 				return err
 			}
 		}
 		if cmd.Flags().Changed("s") {
-			if speed, err = pick("Animation speed", speeds); err != nil {
+			if speed, err = tui.Pick("Animation speed", speeds); err != nil {
 				return err
 			}
 		} else {
@@ -128,7 +129,7 @@ var keymodeCmd = &cobra.Command{
 	Short: "Choose keyboard animation mode",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		chosen, err := pick("Animation mode", modes)
+		chosen, err := tui.Pick("Animation mode", modes)
 		if err != nil {
 			return err
 		}
@@ -148,7 +149,7 @@ var keyspeedCmd = &cobra.Command{
 	Short: "Choose keyboard animation speed",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		chosen, err := pick("Animation speed", speeds)
+		chosen, err := tui.Pick("Animation speed", speeds)
 		if err != nil {
 			return err
 		}
@@ -165,7 +166,7 @@ var keylightCmd = &cobra.Command{
 	Short: "Choose keyboard brightness level",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		chosen, err := pick("Brightness level", brightItems)
+		chosen, err := tui.Pick("Brightness level", brightItems)
 		if err != nil {
 			return err
 		}
@@ -184,7 +185,7 @@ var keystateCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		vals := make([]int, 4)
 		for i, field := range stateItems {
-			chosen, err := pick("LED: "+field, []string{"on", "off"})
+			chosen, err := tui.Pick("LED: "+field, []string{"on", "off"})
 			if err != nil {
 				return err
 			}
