@@ -1,11 +1,19 @@
 package container
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/netip"
+	"os"
 	"os/exec"
 	"strings"
+
+	mobycontainer "github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/network"
+	"github.com/moby/moby/client"
 )
 
 //go:embed presets.json
@@ -20,10 +28,10 @@ type Preset struct {
 	Volumes  []string          `json:"volumes,omitempty"`
 	Cmd      []string          `json:"cmd,omitempty"`
 	Category string            `json:"category,omitempty"`
+	Name     string            `json:"name,omitempty"`
 }
 
 // LoadPresets reads the embedded presets.json and returns all presets.
-// The last entry is always "Custom image..." with empty image.
 func LoadPresets() []Preset {
 	data, err := presetsJSON.ReadFile("presets.json")
 	if err != nil {
@@ -33,12 +41,11 @@ func LoadPresets() []Preset {
 	if err := json.Unmarshal(data, &presets); err != nil {
 		return []Preset{{Label: "Custom image...", Image: ""}}
 	}
-	// append custom option at the end
 	presets = append(presets, Preset{Label: "Custom image...", Image: ""})
 	return presets
 }
 
-// FilterPresets returns presets matching the query (case-insensitive substring match on label, image, category).
+// FilterPresets returns presets matching the query (case-insensitive substring match).
 func FilterPresets(presets []Preset, query string) []Preset {
 	if query == "" {
 		return presets
@@ -47,28 +54,158 @@ func FilterPresets(presets []Preset, query string) []Preset {
 	var matched []Preset
 	for _, p := range presets {
 		label := strings.ToLower(p.Label)
-		image := strings.ToLower(p.Image)
+		img := strings.ToLower(p.Image)
 		cat := strings.ToLower(p.Category)
-		if strings.Contains(label, q) || strings.Contains(image, q) || strings.Contains(cat, q) {
+		if strings.Contains(label, q) || strings.Contains(img, q) || strings.Contains(cat, q) {
 			matched = append(matched, p)
 		}
 	}
-	// always include custom option at the end
 	matched = append(matched, Preset{Label: "Custom image...", Image: ""})
 	return matched
 }
 
-// RunContainer executes docker/podman run with the given preset config.
+// ── Docker/Podman SDK client ──
+
+// newDockerClient creates a moby client connected to the daemon.
+// For podman, it connects to the podman docker-compatible socket.
+func newDockerClient(runtime string) (*client.Client, error) {
+	opts := []client.Opt{client.FromEnv, client.WithAPIVersionNegotiation()}
+
+	if runtime == "podman" {
+		sock := podmanSocket()
+		if sock != "" {
+			opts = []client.Opt{
+				client.WithHost("unix://" + sock),
+				client.WithAPIVersionNegotiation(),
+			}
+		}
+	}
+
+	return client.NewClientWithOpts(opts...)
+}
+
+// podmanSocket finds the podman socket path.
+func podmanSocket() string {
+	uid := os.Getuid()
+	paths := []string{
+		fmt.Sprintf("/run/user/%d/podman/podman.sock", uid),
+		"/run/podman/podman.sock",
+		"/var/run/podman/podman.sock",
+	}
+	for _, p := range paths {
+		if isSocket(p) {
+			return p
+		}
+	}
+	return ""
+}
+
+func isSocket(path string) bool {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeSocket != 0
+}
+
+// ── Container run ──
+
+// RunContainer creates and starts a container via the Docker/Podman SDK.
+// Falls back to CLI if the daemon socket is not reachable.
 func RunContainer(runtime string, p Preset, detach bool) (string, error) {
+	ctx := context.Background()
+
+	cli, err := newDockerClient(runtime)
+	if err != nil {
+		return runContainerCLI(runtime, p, detach)
+	}
+	defer cli.Close()
+
+	// ping to check connection
+	if _, err := cli.Ping(ctx, client.PingOptions{}); err != nil {
+		return runContainerCLI(runtime, p, detach)
+	}
+
+	// pull image (best-effort)
+	pullResp, err := cli.ImagePull(ctx, p.Image, client.ImagePullOptions{})
+	if err == nil {
+		io.Copy(io.Discard, pullResp)
+		pullResp.Close()
+	}
+
+	// build env
+	var envList []string
+	for k, v := range p.Env {
+		envList = append(envList, k+"="+v)
+	}
+
+	// build port bindings
+	exposedPorts := network.PortSet{}
+	portBindings := network.PortMap{}
+	for _, mapping := range p.Ports {
+		parts := strings.SplitN(mapping, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		hostPort := parts[0]
+		containerPort, err := network.ParsePort(parts[1] + "/tcp")
+		if err != nil {
+			continue
+		}
+		exposedPorts[containerPort] = struct{}{}
+		portBindings[containerPort] = []network.PortBinding{
+			{HostIP: netip.MustParseAddr("0.0.0.0"), HostPort: hostPort},
+		}
+	}
+
+	// container name with "dira-" prefix
+	name := containerName(p)
+
+	// container config
+	cfg := &mobycontainer.Config{
+		Image:        p.Image,
+		Env:          envList,
+		ExposedPorts: exposedPorts,
+	}
+	if len(p.Cmd) > 0 {
+		cfg.Cmd = p.Cmd
+	}
+
+	// host config
+	hostCfg := &mobycontainer.HostConfig{
+		PortBindings: portBindings,
+	}
+	if len(p.Volumes) > 0 {
+		hostCfg.Binds = p.Volumes
+	}
+
+	// create
+	resp, err := cli.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Config:     cfg,
+		HostConfig: hostCfg,
+		Name:       name,
+	})
+	if err != nil {
+		return "", fmt.Errorf("create: %w", err)
+	}
+
+	// start
+	if _, err := cli.ContainerStart(ctx, resp.ID, client.ContainerStartOptions{}); err != nil {
+		return resp.ID, fmt.Errorf("start: %w", err)
+	}
+
+	return resp.ID, nil
+}
+
+// runContainerCLI is the fallback using docker/podman CLI.
+func runContainerCLI(runtime string, p Preset, detach bool) (string, error) {
 	args := []string{"run"}
 	if detach {
 		args = append(args, "-d")
 	}
 
-	name := sanitizeName(p.Label)
-	if name != "" {
-		args = append(args, "--name", name)
-	}
+	name := containerName(p)
+	args = append(args, "--name", name)
 
 	for _, port := range p.Ports {
 		args = append(args, "-p", port)
@@ -88,15 +225,35 @@ func RunContainer(runtime string, p Preset, detach bool) (string, error) {
 	return strings.TrimSpace(string(out)), err
 }
 
-// SearchImages searches the registry for images matching the query.
+// ── Image search ──
+
+// SearchImages searches the registry for images.
 func SearchImages(runtime, query string) ([]string, error) {
 	if query == "" {
 		return nil, nil
 	}
+
+	ctx := context.Background()
+	cli, err := newDockerClient(runtime)
+	if err == nil {
+		defer cli.Close()
+		result, err := cli.ImageSearch(ctx, query, client.ImageSearchOptions{})
+		if err == nil && len(result.Items) > 0 {
+			var names []string
+			for _, r := range result.Items {
+				names = append(names, r.Name)
+				if len(names) >= 15 {
+					break
+				}
+			}
+			return names, nil
+		}
+	}
+
+	// fallback to CLI
 	args := []string{"search", "--limit", "15", "--format", "{{.Name}}", query}
 	out, err := exec.Command(runtime, args...).Output()
 	if err != nil {
-		// fallback: try without --format (older podman)
 		out, err = exec.Command(runtime, "search", "--limit", "15", query).Output()
 		if err != nil {
 			return nil, err
@@ -124,16 +281,14 @@ func SearchImages(runtime, query string) ([]string, error) {
 }
 
 // ListTags fetches available tags for an image (best-effort).
-func ListTags(runtime, image string) []string {
-	// Try skopeo first
-	out, err := exec.Command("skopeo", "list-tags", "docker://docker.io/"+image).Output()
+func ListTags(runtime, img string) []string {
+	out, err := exec.Command("skopeo", "list-tags", "docker://docker.io/"+img).Output()
 	if err == nil {
 		return parseSkopeoTags(string(out))
 	}
 
-	// Try podman tag listing
 	if runtime == "podman" {
-		out, err = exec.Command("podman", "search", "--list-tags", "--limit", "20", image).Output()
+		out, err = exec.Command("podman", "search", "--list-tags", "--limit", "20", img).Output()
 		if err == nil {
 			return parsePodmanTags(string(out))
 		}
@@ -183,10 +338,24 @@ func parsePodmanTags(raw string) []string {
 	return tags
 }
 
+// ── Helpers ──
+
+// containerName generates the container name with "dira-" prefix.
+func containerName(p Preset) string {
+	name := p.Name
+	if name == "" {
+		name = sanitizeName(p.Label)
+	}
+	if !strings.HasPrefix(name, "dira-") {
+		name = "dira-" + name
+	}
+	return name
+}
+
+// sanitizeName creates a clean name from a label.
 func sanitizeName(label string) string {
 	label = strings.ToLower(label)
 	var b strings.Builder
-	b.WriteString("dira-")
 	for _, r := range label {
 		switch {
 		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
@@ -195,8 +364,11 @@ func sanitizeName(label string) string {
 			b.WriteByte('-')
 		}
 	}
-	s := b.String()
-	return strings.TrimRight(s, "-")
+	s := strings.TrimRight(b.String(), "-")
+	if s == "" {
+		return "container"
+	}
+	return s
 }
 
 // BuildRunCommand returns the full CLI command string (for display/copy).
@@ -205,10 +377,8 @@ func BuildRunCommand(runtime string, p Preset, detach bool) string {
 	if detach {
 		parts = append(parts, "-d")
 	}
-	name := sanitizeName(p.Label)
-	if name != "" {
-		parts = append(parts, "--name", name)
-	}
+	name := containerName(p)
+	parts = append(parts, "--name", name)
 	for _, port := range p.Ports {
 		parts = append(parts, "-p", port)
 	}

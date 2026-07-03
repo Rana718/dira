@@ -1050,7 +1050,6 @@ func (m RunModel) viewDone() string {
 		}
 		s += runLabel.Render("  Container:") + runDim.Render(id) + "\n"
 	}
-	s += "\n" + runDim.Render("  manage with: dira container") + "\n"
 	s += runDim.Render("  press any key to exit")
 	return s
 }
