@@ -1,0 +1,460 @@
+[
+  {
+    "label": "Redis",
+    "image": "redis:8-alpine",
+    "ports": ["6379:6379"],
+    "category": "database"
+  },
+  {
+    "label": "Redis (with password)",
+    "image": "redis:8-alpine",
+    "ports": ["6379:6379"],
+    "cmd": ["redis-server", "--requirepass", "dira123"],
+    "category": "database"
+  },
+  {
+    "label": "Redis Stack (with RedisInsight UI)",
+    "image": "redis/redis-stack:latest",
+    "ports": ["6379:6379", "8001:8001"],
+    "category": "database"
+  },
+  {
+    "label": "Valkey (Redis fork)",
+    "image": "valkey/valkey:9-alpine",
+    "ports": ["6379:6379"],
+    "category": "database"
+  },
+  {
+    "label": "DragonflyDB (Redis-compatible, faster)",
+    "image": "docker.dragonflydb.io/dragonflydb/dragonfly:latest",
+    "ports": ["6379:6379"],
+    "category": "database"
+  },
+  {
+    "label": "KeyDB (Redis multithreaded)",
+    "image": "eqalpha/keydb:latest",
+    "ports": ["6379:6379"],
+    "category": "database"
+  },
+
+  {
+    "label": "PostgreSQL",
+    "image": "postgres:18-alpine",
+    "ports": ["5432:5432"],
+    "env": { "POSTGRES_PASSWORD": "dira123", "POSTGRES_DB": "dev" },
+    "category": "database"
+  },
+  {
+    "label": "PostgreSQL + pgvector (AI/embeddings)",
+    "image": "pgvector/pgvector:pg18",
+    "ports": ["5432:5432"],
+    "env": { "POSTGRES_PASSWORD": "dira123", "POSTGRES_DB": "dev" },
+    "category": "database"
+  },
+  {
+    "label": "TimescaleDB (time-series on Postgres)",
+    "image": "timescale/timescaledb:latest-pg18",
+    "ports": ["5432:5432"],
+    "env": { "POSTGRES_PASSWORD": "dira123" },
+    "category": "database"
+  },
+
+  {
+    "label": "MySQL",
+    "image": "mysql:9",
+    "ports": ["3306:3306"],
+    "env": { "MYSQL_ROOT_PASSWORD": "dira123", "MYSQL_DATABASE": "dev" },
+    "category": "database"
+  },
+  {
+    "label": "MariaDB",
+    "image": "mariadb:11",
+    "ports": ["3306:3306"],
+    "env": { "MYSQL_ROOT_PASSWORD": "dira123", "MYSQL_DATABASE": "dev" },
+    "category": "database"
+  },
+
+  {
+    "label": "MongoDB",
+    "image": "mongo:8",
+    "ports": ["27017:27017"],
+    "category": "database"
+  },
+  {
+    "label": "MongoDB (with auth)",
+    "image": "mongo:8",
+    "ports": ["27017:27017"],
+    "env": {
+      "MONGO_INITDB_ROOT_USERNAME": "admin",
+      "MONGO_INITDB_ROOT_PASSWORD": "dira123"
+    },
+    "category": "database"
+  },
+
+  {
+    "label": "CockroachDB (distributed SQL)",
+    "image": "cockroachdb/cockroach:latest",
+    "ports": ["26257:26257", "8080:8080"],
+    "cmd": ["start-single-node", "--insecure"],
+    "category": "database"
+  },
+  {
+    "label": "Cassandra",
+    "image": "cassandra:5",
+    "ports": ["9042:9042"],
+    "category": "database"
+  },
+  {
+    "label": "ScyllaDB (fast Cassandra-compatible)",
+    "image": "scylladb/scylla:latest",
+    "ports": ["9042:9042", "10000:10000"],
+    "category": "database"
+  },
+  {
+    "label": "ClickHouse (analytics)",
+    "image": "clickhouse/clickhouse-server:latest",
+    "ports": ["8123:8123", "9000:9000"],
+    "category": "database"
+  },
+  {
+    "label": "SurrealDB (multi-model)",
+    "image": "surrealdb/surrealdb:latest",
+    "ports": ["8000:8000"],
+    "cmd": ["start", "--user", "root", "--pass", "dira123"],
+    "category": "database"
+  },
+  {
+    "label": "Neo4j (graph database)",
+    "image": "neo4j:5",
+    "ports": ["7474:7474", "7687:7687"],
+    "env": { "NEO4J_AUTH": "neo4j/dira123" },
+    "category": "database"
+  },
+  {
+    "label": "ArangoDB (graph/document)",
+    "image": "arangodb:latest",
+    "ports": ["8529:8529"],
+    "env": { "ARANGO_ROOT_PASSWORD": "dira123" },
+    "category": "database"
+  },
+  {
+    "label": "InfluxDB (time-series)",
+    "image": "influxdb:2-alpine",
+    "ports": ["8086:8086"],
+    "category": "database"
+  },
+  {
+    "label": "QuestDB (fast time-series)",
+    "image": "questdb/questdb:latest",
+    "ports": ["9000:9000", "9009:9009", "8812:8812"],
+    "category": "database"
+  },
+  {
+    "label": "FerretDB (MongoDB on Postgres)",
+    "image": "ghcr.io/ferretdb/ferretdb:latest",
+    "ports": ["27017:27017"],
+    "env": {
+      "FERRETDB_POSTGRESQL_URL": "postgres://postgres:dira123@host.docker.internal:5432/ferretdb"
+    },
+    "category": "database"
+  },
+  {
+    "label": "CrateDB (distributed SQL)",
+    "image": "crate:latest",
+    "ports": ["4200:4200", "5432:5432"],
+    "env": { "CRATE_HEAP_SIZE": "512m" },
+    "category": "database"
+  },
+
+  {
+    "label": "Qdrant (vector search)",
+    "image": "qdrant/qdrant:latest",
+    "ports": ["6333:6333", "6334:6334"],
+    "category": "search"
+  },
+  {
+    "label": "ChromaDB (AI embeddings)",
+    "image": "chromadb/chroma:latest",
+    "ports": ["8000:8000"],
+    "category": "search"
+  },
+  {
+    "label": "Milvus (vector DB)",
+    "image": "milvusdb/milvus:latest",
+    "ports": ["19530:19530", "9091:9091"],
+    "cmd": ["milvus", "run", "standalone"],
+    "category": "search"
+  },
+  {
+    "label": "Weaviate (vector DB)",
+    "image": "semitechnologies/weaviate:latest",
+    "ports": ["8080:8080"],
+    "env": {
+      "AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED": "true",
+      "PERSISTENCE_DATA_PATH": "/var/lib/weaviate"
+    },
+    "category": "search"
+  },
+  {
+    "label": "Elasticsearch",
+    "image": "elasticsearch:8.17.0",
+    "ports": ["9200:9200"],
+    "env": {
+      "discovery.type": "single-node",
+      "xpack.security.enabled": "false"
+    },
+    "category": "search"
+  },
+  {
+    "label": "OpenSearch",
+    "image": "opensearchproject/opensearch:latest",
+    "ports": ["9200:9200", "9600:9600"],
+    "env": {
+      "discovery.type": "single-node",
+      "DISABLE_SECURITY_PLUGIN": "true"
+    },
+    "category": "search"
+  },
+  {
+    "label": "Meilisearch",
+    "image": "getmeili/meilisearch:latest",
+    "ports": ["7700:7700"],
+    "env": { "MEILI_ENV": "development" },
+    "category": "search"
+  },
+  {
+    "label": "Typesense",
+    "image": "typesense/typesense:latest",
+    "ports": ["8108:8108"],
+    "cmd": ["--data-dir=/data", "--api-key=dira123"],
+    "category": "search"
+  },
+
+  {
+    "label": "Memcached",
+    "image": "memcached:alpine",
+    "ports": ["11211:11211"],
+    "category": "cache"
+  },
+  {
+    "label": "RabbitMQ (with management UI)",
+    "image": "rabbitmq:4-management-alpine",
+    "ports": ["5672:5672", "15672:15672"],
+    "env": {
+      "RABBITMQ_DEFAULT_USER": "admin",
+      "RABBITMQ_DEFAULT_PASS": "dira123"
+    },
+    "category": "queue"
+  },
+  {
+    "label": "Kafka (KRaft, no Zookeeper)",
+    "image": "bitnami/kafka:latest",
+    "ports": ["9092:9092"],
+    "env": {
+      "KAFKA_CFG_NODE_ID": "0",
+      "KAFKA_CFG_PROCESS_ROLES": "controller,broker",
+      "KAFKA_CFG_LISTENERS": "PLAINTEXT://:9092,CONTROLLER://:9093",
+      "KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP": "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT",
+      "KAFKA_CFG_CONTROLLER_QUORUM_VOTERS": "0@localhost:9093",
+      "KAFKA_CFG_CONTROLLER_LISTENER_NAMES": "CONTROLLER"
+    },
+    "category": "queue"
+  },
+  {
+    "label": "NATS",
+    "image": "nats:alpine",
+    "ports": ["4222:4222", "8222:8222"],
+    "category": "queue"
+  },
+  {
+    "label": "NATS (with JetStream)",
+    "image": "nats:alpine",
+    "ports": ["4222:4222", "8222:8222"],
+    "cmd": ["-js"],
+    "category": "queue"
+  },
+  {
+    "label": "Apache Pulsar",
+    "image": "apachepulsar/pulsar:latest",
+    "ports": ["6650:6650", "8080:8080"],
+    "cmd": ["bin/pulsar", "standalone"],
+    "category": "queue"
+  },
+
+  {
+    "label": "Nginx",
+    "image": "nginx:alpine",
+    "ports": ["8080:80"],
+    "category": "web"
+  },
+  {
+    "label": "Caddy (auto-HTTPS)",
+    "image": "caddy:alpine",
+    "ports": ["80:80", "443:443", "2019:2019"],
+    "category": "web"
+  },
+  {
+    "label": "Traefik (reverse proxy)",
+    "image": "traefik:v3.3",
+    "ports": ["80:80", "443:443", "8080:8080"],
+    "cmd": ["--api.insecure=true", "--providers.docker=true"],
+    "category": "web"
+  },
+  {
+    "label": "httpbin (HTTP testing)",
+    "image": "kennethreitz/httpbin:latest",
+    "ports": ["8080:80"],
+    "category": "web"
+  },
+
+  {
+    "label": "MinIO (S3-compatible)",
+    "image": "minio/minio:latest",
+    "ports": ["9000:9000", "9001:9001"],
+    "env": {
+      "MINIO_ROOT_USER": "minioadmin",
+      "MINIO_ROOT_PASSWORD": "minioadmin"
+    },
+    "cmd": ["server", "/data", "--console-address", ":9001"],
+    "category": "storage"
+  },
+  {
+    "label": "Docker Registry (private)",
+    "image": "registry:2",
+    "ports": ["5000:5000"],
+    "category": "storage"
+  },
+
+  {
+    "label": "Adminer (DB web UI)",
+    "image": "adminer:latest",
+    "ports": ["8081:8080"],
+    "category": "tool"
+  },
+  {
+    "label": "pgAdmin 4 (PostgreSQL UI)",
+    "image": "dpage/pgadmin4:latest",
+    "ports": ["5050:80"],
+    "env": {
+      "PGADMIN_DEFAULT_EMAIL": "admin@local.dev",
+      "PGADMIN_DEFAULT_PASSWORD": "dira123"
+    },
+    "category": "tool"
+  },
+  {
+    "label": "phpMyAdmin (MySQL UI)",
+    "image": "phpmyadmin:latest",
+    "ports": ["8082:80"],
+    "env": { "PMA_ARBITRARY": "1" },
+    "category": "tool"
+  },
+  {
+    "label": "Mongo Express (MongoDB UI)",
+    "image": "mongo-express:latest",
+    "ports": ["8081:8081"],
+    "env": { "ME_CONFIG_BASICAUTH": "false" },
+    "category": "tool"
+  },
+  {
+    "label": "RedisInsight (Redis GUI)",
+    "image": "redis/redisinsight:latest",
+    "ports": ["5540:5540"],
+    "category": "tool"
+  },
+  {
+    "label": "Kafka UI",
+    "image": "provectuslabs/kafka-ui:latest",
+    "ports": ["8080:8080"],
+    "env": {
+      "KAFKA_CLUSTERS_0_NAME": "local",
+      "KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS": "host.docker.internal:9092"
+    },
+    "category": "tool"
+  },
+  {
+    "label": "Mailpit (dev email)",
+    "image": "axllent/mailpit:latest",
+    "ports": ["1025:1025", "8025:8025"],
+    "category": "tool"
+  },
+
+  {
+    "label": "Vault (secrets manager)",
+    "image": "hashicorp/vault:latest",
+    "ports": ["8200:8200"],
+    "env": { "VAULT_DEV_ROOT_TOKEN_ID": "dira123" },
+    "cmd": ["server", "-dev"],
+    "category": "infra"
+  },
+  {
+    "label": "Consul (service discovery)",
+    "image": "hashicorp/consul:latest",
+    "ports": ["8500:8500"],
+    "cmd": ["agent", "-dev", "-client=0.0.0.0"],
+    "category": "infra"
+  },
+  {
+    "label": "etcd (key-value store)",
+    "image": "quay.io/coreos/etcd:latest",
+    "ports": ["2379:2379", "2380:2380"],
+    "cmd": [
+      "/usr/local/bin/etcd",
+      "--advertise-client-urls=http://0.0.0.0:2379",
+      "--listen-client-urls=http://0.0.0.0:2379"
+    ],
+    "category": "infra"
+  },
+  {
+    "label": "Jaeger (distributed tracing)",
+    "image": "jaegertracing/all-in-one:latest",
+    "ports": ["16686:16686", "4317:4317", "4318:4318"],
+    "env": { "COLLECTOR_OTLP_ENABLED": "true" },
+    "category": "infra"
+  },
+  {
+    "label": "Prometheus",
+    "image": "prom/prometheus:latest",
+    "ports": ["9090:9090"],
+    "category": "infra"
+  },
+  {
+    "label": "Grafana",
+    "image": "grafana/grafana:latest",
+    "ports": ["3000:3000"],
+    "env": { "GF_SECURITY_ADMIN_PASSWORD": "dira123" },
+    "category": "infra"
+  },
+
+  {
+    "label": "Keycloak (identity/SSO)",
+    "image": "quay.io/keycloak/keycloak:latest",
+    "ports": ["8080:8080"],
+    "env": { "KEYCLOAK_ADMIN": "admin", "KEYCLOAK_ADMIN_PASSWORD": "dira123" },
+    "cmd": ["start-dev"],
+    "category": "infra"
+  },
+  {
+    "label": "LocalStack (AWS emulator)",
+    "image": "localstack/localstack:latest",
+    "ports": ["4566:4566"],
+    "category": "infra"
+  },
+  {
+    "label": "Wiremock (API mocking)",
+    "image": "wiremock/wiremock:latest",
+    "ports": ["8080:8080"],
+    "category": "tool"
+  },
+  {
+    "label": "SonarQube (code quality)",
+    "image": "sonarqube:community",
+    "ports": ["9000:9000"],
+    "category": "tool"
+  },
+  {
+    "label": "Gitea (self-hosted Git)",
+    "image": "gitea/gitea:latest",
+    "ports": ["3000:3000", "2222:22"],
+    "category": "tool"
+  }
+]

@@ -280,4 +280,3 @@ func sudoWrite(path, value string) {
 	cmd.Stderr = os.Stderr
 	_ = cmd.Run()
 }
-

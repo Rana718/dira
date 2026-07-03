@@ -8,14 +8,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// ── Brand colours 
+// ── Brand colours
 
 var (
-	pink   = lipgloss.NewStyle().Foreground(lipgloss.Color("#CD2976")).Bold(true)
-	cream  = lipgloss.NewStyle().Foreground(lipgloss.Color("#D8D0BF")).Bold(true)
-	dim    = lipgloss.NewStyle().Foreground(lipgloss.Color("#666666"))
-	bold   = lipgloss.NewStyle().Foreground(lipgloss.Color("#D8D0BF")).Bold(true)
-	cat    = lipgloss.NewStyle().Foreground(lipgloss.Color("99")).Bold(true)
+	pink  = lipgloss.NewStyle().Foreground(lipgloss.Color("#CD2976")).Bold(true)
+	cream = lipgloss.NewStyle().Foreground(lipgloss.Color("#D8D0BF")).Bold(true)
+	dim   = lipgloss.NewStyle().Foreground(lipgloss.Color("#666666"))
+	bold  = lipgloss.NewStyle().Foreground(lipgloss.Color("#D8D0BF")).Bold(true)
+	cat   = lipgloss.NewStyle().Foreground(lipgloss.Color("99")).Bold(true)
 )
 
 var logo = []string{
@@ -62,6 +62,7 @@ func printHome(version string) {
 		{"Network & Dev", []entry{
 			{"ports", "show open ports and processes"},
 			{"container", "manage Docker / Podman containers"},
+			{"run", "quick-run a container (redis, postgres…)"},
 		}},
 	}
 
@@ -79,7 +80,6 @@ func printHome(version string) {
 	fmt.Println(dim.Render(`  dira <command> --help for details`))
 	fmt.Println()
 }
-
 
 type cmdEntry struct{ Name, Short string }
 
@@ -104,7 +104,7 @@ func printColorHelp(cmd *cobra.Command) {
 			"power": true, "info": true, "disk": true, "service": true,
 		}},
 		{"Network & Dev", map[string]bool{
-			"ports": true, "container": true,
+			"ports": true, "container": true, "run": true,
 		}},
 		{"Other", nil},
 	}
@@ -155,7 +155,7 @@ func printColorHelp(cmd *cobra.Command) {
 	fmt.Println()
 }
 
-// ── Root command 
+// ── Root command
 
 var appVersion string
 
