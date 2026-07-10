@@ -2,6 +2,7 @@ package container
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -40,6 +41,7 @@ const (
 	ModeLogs
 	ModeInfo
 	ModeVolumes
+	ModeHistory
 )
 
 type ContentMsg struct{ Text, Err string }
@@ -248,6 +250,33 @@ func (m Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			exec.Command(c.Runtime, "exec", "-it", c.ID, "/bin/sh"),
 			func(err error) tea.Msg { return ActionDoneMsg{Err: err} },
 		)
+	case "h":
+		if c == nil {
+			break
+		}
+		m.Screen = ModeHistory
+		m.Loading = true
+		rt, img := c.Runtime, c.Image
+		return m, func() tea.Msg {
+			layers, err := GetImageHistory(rt, img)
+			if err != nil {
+				return ContentMsg{Err: err.Error()}
+			}
+			return ContentMsg{Text: renderHistory(layers)}
+		}
+	case "c":
+		if c == nil || !c.Running {
+			m.Err = "container must be running to edit files"
+			break
+		}
+		rt, id, name := c.Runtime, c.ID, c.Name
+		// List common config paths, let user pick, copy out, edit locally, copy back
+		return m, tea.ExecProcess(
+			exec.Command("/bin/sh", "-c", editFileScript(rt, id, name)),
+			func(err error) tea.Msg {
+				return ActionDoneMsg{Err: err}
+			},
+		)
 	}
 	return m, nil
 }
@@ -264,6 +293,8 @@ func (m Model) Render() string {
 		body = m.subView("Info", "  ↑/↓ scroll · esc back")
 	case ModeVolumes:
 		body = m.subView("Volumes / Mounts", "  ↑/↓ scroll · esc back")
+	case ModeHistory:
+		body = m.subView("Image History", "  ↑/↓ scroll · esc back")
 	default:
 		body = m.viewList()
 	}
@@ -276,8 +307,8 @@ func (m Model) Render() string {
 
 func (m Model) renderHelp() string {
 	help := [][]string{
-		{"l", "logs"}, {"i", "info"}, {"v", "volumes"},
-		{"s", "stop"}, {"S", "start"}, {"d", "delete"},
+		{"l", "logs"}, {"i", "info"}, {"v", "volumes"}, {"h", "history"},
+		{"c", "files"}, {"s", "stop"}, {"S", "start"}, {"d", "delete"},
 		{"e", "shell"}, {"r", "refresh"}, {"q", "quit"},
 	}
 	var parts []string
@@ -516,3 +547,90 @@ func formatPort(s string) string {
 }
 
 func (m Model) View() string { return m.Render() }
+
+// editFileScript generates a shell script that:
+// 1. Lists the file tree inside the container
+// 2. Lets user type a path to edit
+// 3. Copies the file out, opens in local editor
+// 4. Copies back and optionally restarts the container
+func editFileScript(rt, id, name string) string {
+	editor := getEditor()
+	return fmt.Sprintf(`
+set -e
+echo ""
+echo "  ═══ dira: edit container file ═══"
+echo "  Container: %s (%s)"
+echo ""
+echo "  File tree (showing config-relevant paths):"
+echo "  ─────────────────────────────────────────"
+%s exec %s find /etc /app /data /config /opt 2>/dev/null | head -60 || true
+echo ""
+echo "  ─────────────────────────────────────────"
+echo ""
+printf "  Enter file path to edit (or 'q' to cancel): "
+read filepath
+if [ "$filepath" = "q" ] || [ -z "$filepath" ]; then
+    echo "  Cancelled."
+    exit 0
+fi
+# copy file out
+tmpfile=$(mktemp /tmp/dira-edit-XXXXXX)
+%s cp %s:"$filepath" "$tmpfile" 2>/dev/null
+if [ $? -ne 0 ]; then
+    echo "  Error: cannot read $filepath from container"
+    rm -f "$tmpfile"
+    exit 1
+fi
+# open in editor
+%s "$tmpfile"
+# copy back
+%s cp "$tmpfile" %s:"$filepath"
+if [ $? -eq 0 ]; then
+    echo ""
+    echo "  ✓ File updated: $filepath"
+    printf "  Restart container to apply? [y/N]: "
+    read restart
+    if [ "$restart" = "y" ] || [ "$restart" = "Y" ]; then
+        %s restart %s
+        echo "  ✓ Container restarted."
+    fi
+else
+    echo "  ✗ Failed to copy file back."
+fi
+rm -f "$tmpfile"
+`, name, id[:12], rt, id, rt, id, editor, rt, id, rt, id)
+}
+
+// renderHistory formats image layers for display.
+func renderHistory(layers []ImageLayer) string {
+	if len(layers) == 0 {
+		return ctDim.Render("  No history available.")
+	}
+	s := ""
+	for i, l := range layers {
+		num := fmt.Sprintf("  %2d.", i+1)
+		s += ctHdr.Render(num) + "  " + ctValue.Render(l.CreatedAt) + "\n"
+		s += "      " + ctDim.Render(l.CreatedBy) + "\n"
+		if l.Size != "" && l.Size != "0B" {
+			s += "      " + ctYellow.Render("size: "+l.Size) + "\n"
+		}
+		s += "\n"
+	}
+	return s
+}
+
+// getEditor returns the user's preferred editor.
+func getEditor() string {
+	if e := os.Getenv("EDITOR"); e != "" {
+		return e
+	}
+	if e := os.Getenv("VISUAL"); e != "" {
+		return e
+	}
+	for _, e := range []string{"vim", "nvim", "nano", "vi"} {
+		if _, err := exec.LookPath(e); err == nil {
+			return e
+		}
+	}
+	return "vi"
+}

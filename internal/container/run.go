@@ -68,20 +68,34 @@ func FilterPresets(presets []Preset, query string) []Preset {
 
 // newDockerClient creates a moby client connected to the daemon.
 // For podman, it connects to the podman docker-compatible socket.
+// Returns error if no socket found for the given runtime.
 func newDockerClient(runtime string) (*client.Client, error) {
-	opts := []client.Opt{client.FromEnv, client.WithAPIVersionNegotiation()}
-
 	if runtime == "podman" {
 		sock := podmanSocket()
-		if sock != "" {
-			opts = []client.Opt{
-				client.WithHost("unix://" + sock),
-				client.WithAPIVersionNegotiation(),
-			}
+		if sock == "" {
+			return nil, fmt.Errorf("podman socket not found")
 		}
+		return client.NewClientWithOpts(
+			client.WithHost("unix://"+sock),
+			client.WithAPIVersionNegotiation(),
+		)
 	}
 
-	return client.NewClientWithOpts(opts...)
+	// docker — check socket exists first
+	dockerSock := "/var/run/docker.sock"
+	if !isSocket(dockerSock) {
+		// also try user socket
+		userSock := fmt.Sprintf("/run/user/%d/docker.sock", os.Getuid())
+		if !isSocket(userSock) {
+			return nil, fmt.Errorf("docker socket not found")
+		}
+		dockerSock = userSock
+	}
+
+	return client.NewClientWithOpts(
+		client.WithHost("unix://"+dockerSock),
+		client.WithAPIVersionNegotiation(),
+	)
 }
 
 // podmanSocket finds the podman socket path.
@@ -91,6 +105,24 @@ func podmanSocket() string {
 		fmt.Sprintf("/run/user/%d/podman/podman.sock", uid),
 		"/run/podman/podman.sock",
 		"/var/run/podman/podman.sock",
+	}
+	for _, p := range paths {
+		if isSocket(p) {
+			return p
+		}
+	}
+	return ""
+}
+
+// daemonSocket returns the socket path for the given runtime, or "" if none found.
+func daemonSocket(runtime string) string {
+	if runtime == "podman" {
+		return podmanSocket()
+	}
+	// docker
+	paths := []string{
+		"/var/run/docker.sock",
+		fmt.Sprintf("/run/user/%d/docker.sock", os.Getuid()),
 	}
 	for _, p := range paths {
 		if isSocket(p) {
@@ -158,7 +190,7 @@ func RunContainer(runtime string, p Preset, detach bool) (string, error) {
 		}
 	}
 
-	// container name with "dira-" prefix
+	// container name
 	name := containerName(p)
 
 	// container config
@@ -340,14 +372,11 @@ func parsePodmanTags(raw string) []string {
 
 // ── Helpers ──
 
-// containerName generates the container name with "dira-" prefix.
+// containerName returns the container name — uses Name field or sanitized Label, no prefix.
 func containerName(p Preset) string {
 	name := p.Name
 	if name == "" {
 		name = sanitizeName(p.Label)
-	}
-	if !strings.HasPrefix(name, "dira-") {
-		name = "dira-" + name
 	}
 	return name
 }

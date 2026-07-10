@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -74,6 +75,7 @@ func List() []Container {
 
 		cli, err := newDockerClient(rt)
 		if err != nil {
+			// no socket available, use CLI directly
 			out = append(out, listCLI(rt)...)
 			continue
 		}
@@ -81,6 +83,7 @@ func List() []Container {
 		ctx := context.Background()
 		if _, err := cli.Ping(ctx, client.PingOptions{}); err != nil {
 			cli.Close()
+			// daemon not responding, use CLI
 			out = append(out, listCLI(rt)...)
 			continue
 		}
@@ -399,4 +402,307 @@ func int64Field(m map[string]any, key string) int64 {
 		return v
 	}
 	return 0
+}
+
+// ── Additional container info ──
+
+// ContainerDetail holds extended info shown in the detail view.
+type ContainerDetail struct {
+	ID         string
+	Name       string
+	Image      string
+	Created    string
+	Status     string
+	StartedAt  string
+	Platform   string
+	RestartCnt int
+	Cmd        []string
+	Env        []string
+	Ports      []string
+	Mounts     []Mount
+	Resources  ResourceLimits
+}
+
+// GetDetail fetches extended container details.
+func GetDetail(rt, id string) (ContainerDetail, error) {
+	cli, err := newDockerClient(rt)
+	if err != nil {
+		return getDetailCLI(rt, id)
+	}
+	defer cli.Close()
+
+	ctx := context.Background()
+	result, err := cli.ContainerInspect(ctx, id, client.ContainerInspectOptions{})
+	if err != nil {
+		return getDetailCLI(rt, id)
+	}
+
+	data := result.Container
+	d := ContainerDetail{
+		ID:      data.ID,
+		Name:    strings.TrimPrefix(data.Name, "/"),
+		Created: data.Created,
+	}
+
+	if data.State != nil {
+		d.Status = string(data.State.Status)
+		d.StartedAt = data.State.StartedAt
+	}
+	if data.Config != nil {
+		d.Image = data.Config.Image
+		d.Cmd = data.Config.Cmd
+		d.Env = data.Config.Env
+	}
+	if data.HostConfig != nil {
+		res := data.HostConfig.Resources
+		d.Resources = ResourceLimits{
+			MemoryBytes:     res.Memory,
+			MemorySwapBytes: res.MemorySwap,
+			NanoCPUs:        res.NanoCPUs,
+			CPUShares:       res.CPUShares,
+			PidsLimit:       derefInt64(res.PidsLimit),
+			CPUQuota:        res.CPUQuota,
+			CPUPeriod:       res.CPUPeriod,
+		}
+	}
+	d.RestartCnt = data.RestartCount
+
+	for _, m := range data.Mounts {
+		d.Mounts = append(d.Mounts, Mount{
+			Source:      m.Source,
+			Destination: m.Destination,
+			Mode:        m.Mode,
+		})
+	}
+
+	return d, nil
+}
+
+func getDetailCLI(rt, id string) (ContainerDetail, error) {
+	info, err := inspectCLI(rt, id)
+	if err != nil {
+		return ContainerDetail{}, err
+	}
+	return ContainerDetail{
+		ID:      info.ID,
+		Name:    info.Name,
+		Image:   info.Image,
+		Status:  info.Status,
+		Created: info.Created,
+		Env:     info.Env,
+		Mounts:  info.Mounts,
+	}, nil
+}
+
+// ImageHistory returns pull/create layers info for an image.
+type ImageLayer struct {
+	CreatedAt string
+	CreatedBy string
+	Size      string
+}
+
+func GetImageHistory(rt, imageRef string) ([]ImageLayer, error) {
+	// use CLI — SDK history response is complex
+	b, err := exec.Command(rt, "history", "--no-trunc",
+		"--format", "{{.CreatedAt}}\t{{.CreatedBy}}\t{{.Size}}", imageRef).Output()
+	if err != nil {
+		return nil, err
+	}
+	var layers []ImageLayer
+	for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 3)
+		for len(parts) < 3 {
+			parts = append(parts, "")
+		}
+		createdBy := parts[1]
+		if len(createdBy) > 80 {
+			createdBy = createdBy[:80] + "…"
+		}
+		layers = append(layers, ImageLayer{
+			CreatedAt: parts[0],
+			CreatedBy: createdBy,
+			Size:      parts[2],
+		})
+	}
+	return layers, nil
+}
+
+// EditConfig opens the container's config in an editor, then recreates with the new config.
+// Returns the new container ID or error.
+func EditConfig(rt, id string) error {
+	// get current inspect as JSON
+	cli, err := newDockerClient(rt)
+	if err != nil {
+		return fmt.Errorf("cannot connect to daemon")
+	}
+	defer cli.Close()
+
+	ctx := context.Background()
+	result, err := cli.ContainerInspect(ctx, id, client.ContainerInspectOptions{})
+	if err != nil {
+		return fmt.Errorf("inspect: %w", err)
+	}
+
+	// write editable config to temp file
+	editable := buildEditableConfig(result.Container)
+	tmpFile, err := writeTempJSON(editable)
+	if err != nil {
+		return err
+	}
+
+	return applyEditedConfig(rt, id, tmpFile)
+}
+
+// EditableConfig is the subset of config users can safely edit.
+type EditableConfig struct {
+	Name    string            `json:"name"`
+	Image   string            `json:"image"`
+	Cmd     []string          `json:"cmd,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
+	Ports   []string          `json:"ports,omitempty"`
+	Volumes []string          `json:"volumes,omitempty"`
+}
+
+func buildEditableConfig(data interface{}) EditableConfig {
+	// Use type assertion on the InspectResponse
+	type inspectable interface {
+		GetName() string
+	}
+	// We'll work with the raw JSON approach since the InspectResponse fields
+	// are available directly
+	b, _ := json.Marshal(data)
+	var raw map[string]any
+	json.Unmarshal(b, &raw)
+
+	cfg := EditableConfig{}
+	if name, ok := raw["Name"].(string); ok {
+		cfg.Name = strings.TrimPrefix(name, "/")
+	}
+	if config, ok := raw["Config"].(map[string]any); ok {
+		if img, ok := config["Image"].(string); ok {
+			cfg.Image = img
+		}
+		if cmd, ok := config["Cmd"].([]any); ok {
+			for _, c := range cmd {
+				if s, ok := c.(string); ok {
+					cfg.Cmd = append(cfg.Cmd, s)
+				}
+			}
+		}
+		if env, ok := config["Env"].([]any); ok {
+			cfg.Env = map[string]string{}
+			for _, e := range env {
+				if s, ok := e.(string); ok {
+					if eq := strings.IndexByte(s, '='); eq > 0 {
+						cfg.Env[s[:eq]] = s[eq+1:]
+					}
+				}
+			}
+		}
+	}
+	if hc, ok := raw["HostConfig"].(map[string]any); ok {
+		if binds, ok := hc["Binds"].([]any); ok {
+			for _, b := range binds {
+				if s, ok := b.(string); ok {
+					cfg.Volumes = append(cfg.Volumes, s)
+				}
+			}
+		}
+	}
+	return cfg
+}
+
+func writeTempJSON(cfg EditableConfig) (string, error) {
+	b, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return "", err
+	}
+
+	f, err := os.CreateTemp("", "dira-config-*.json")
+	if err != nil {
+		return "", err
+	}
+	f.Write(b)
+	f.Close()
+	return f.Name(), nil
+}
+
+// applyEditedConfig opens editor, reads modified config, recreates container.
+func applyEditedConfig(rt, id, tmpFile string) error {
+	// this function is called via tea.ExecProcess in the TUI,
+	// so the editor runs in the terminal. After exit we read the file.
+	// The actual exec happens in the TUI layer — here we just do the
+	// stop-remove-recreate logic after the file is edited.
+
+	b, err := os.ReadFile(tmpFile)
+	if err != nil {
+		return fmt.Errorf("read config: %w", err)
+	}
+	os.Remove(tmpFile)
+
+	var cfg EditableConfig
+	if err := json.Unmarshal(b, &cfg); err != nil {
+		return fmt.Errorf("invalid JSON: %w", err)
+	}
+
+	// stop old container
+	_ = Stop(rt, id)
+
+	// remove old container
+	_ = Delete(rt, id)
+
+	// recreate with new config
+	preset := Preset{
+		Label:   cfg.Name,
+		Name:    cfg.Name,
+		Image:   cfg.Image,
+		Cmd:     cfg.Cmd,
+		Volumes: cfg.Volumes,
+	}
+	if len(cfg.Env) > 0 {
+		preset.Env = cfg.Env
+	}
+	if len(cfg.Ports) > 0 {
+		preset.Ports = cfg.Ports
+	}
+
+	_, err = RunContainer(rt, preset, true)
+	return err
+}
+
+// GetConfigTempFile creates a temp file with the editable config and returns path.
+func GetConfigTempFile(rt, id string) (string, error) {
+	cli, err := newDockerClient(rt)
+	if err != nil {
+		return "", fmt.Errorf("cannot connect to daemon")
+	}
+	defer cli.Close()
+
+	ctx := context.Background()
+	result, err := cli.ContainerInspect(ctx, id, client.ContainerInspectOptions{})
+	if err != nil {
+		// fallback
+		b, err := exec.Command(rt, "inspect", id).Output()
+		if err != nil {
+			return "", err
+		}
+		var raw []map[string]any
+		json.Unmarshal(b, &raw)
+		if len(raw) == 0 {
+			return "", fmt.Errorf("empty inspect")
+		}
+		cfg := buildEditableConfig(raw[0])
+		return writeTempJSON(cfg)
+	}
+
+	cfg := buildEditableConfig(result.Container)
+	return writeTempJSON(cfg)
+}
+
+// ApplyEditedConfig reads the temp file and recreates the container.
+func ApplyEditedConfig(rt, id, tmpFile string) error {
+	return applyEditedConfig(rt, id, tmpFile)
 }
