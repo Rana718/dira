@@ -26,7 +26,7 @@ dira power
 Shows CPU/GPU clocks, TDP, temps, and fan speeds alongside each profile's config.
 Custom profiles are saved to SQLite and persist across sessions.
 
-![power TUI](img/power.png)
+<img src="img/power.png" alt="Power TUI" width="40%">
 
 ### `info`
 
