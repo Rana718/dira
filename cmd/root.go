@@ -64,6 +64,9 @@ func printHome(version string) {
 			{"container", "manage Docker / Podman containers"},
 			{"run", "quick-run a container (redis, postgres…)"},
 		}},
+		{"Desktop", []entry{
+			{"set-wall", "set Hyprland wallpaper via file picker"},
+		}},
 	}
 
 	for _, g := range groups {
@@ -105,6 +108,9 @@ func printColorHelp(cmd *cobra.Command) {
 		}},
 		{"Network & Dev", map[string]bool{
 			"ports": true, "container": true, "run": true,
+		}},
+		{"Desktop", map[string]bool{
+			"set-wall": true,
 		}},
 		{"Other", nil},
 	}
@@ -186,5 +192,6 @@ func init() {
 	rootCmd.AddCommand(
 		keycolorCmd, keymodeCmd, keyspeedCmd, keylightCmd, keystateCmd,
 		powerCmd, infoCmd, portsCmd, containerCmd, diskCmd, serviceCmd,
+		setwallCmd,
 	)
 }
