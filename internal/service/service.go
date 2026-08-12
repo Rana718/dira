@@ -17,7 +17,6 @@ type Entry struct {
 }
 
 func List() []Entry {
-	// list-units: services that have been loaded (running, dead, failed, etc.)
 	out, err := exec.Command("sudo", "systemctl", "list-units",
 		"--type=service", "--all", "--no-pager", "--no-legend", "--plain").Output()
 	if err != nil {
@@ -25,7 +24,6 @@ func List() []Entry {
 			"--type=service", "--all", "--no-pager", "--no-legend", "--plain").Output()
 	}
 
-	// list-unit-files: ALL installed services including never-loaded ones
 	filesOut, _ := exec.Command("sudo", "systemctl", "list-unit-files",
 		"--type=service", "--no-pager", "--no-legend", "--plain").Output()
 	if len(filesOut) == 0 {
@@ -33,7 +31,6 @@ func List() []Entry {
 			"--type=service", "--no-pager", "--no-legend", "--plain").Output()
 	}
 
-	// build enabled map and track all known service names
 	enabledMap := map[string]string{}
 	allNames := map[string]bool{}
 	for _, line := range strings.Split(string(filesOut), "\n") {
@@ -44,7 +41,6 @@ func List() []Entry {
 		}
 	}
 
-	// parse list-units entries
 	services := []Entry{}
 	seen := map[string]bool{}
 	for _, line := range strings.Split(string(out), "\n") {
@@ -69,7 +65,6 @@ func List() []Entry {
 		seen[name] = true
 	}
 
-	// add services from unit-files that were never loaded (not in list-units)
 	for name := range allNames {
 		if !seen[name] {
 			services = append(services, Entry{
@@ -82,7 +77,6 @@ func List() []Entry {
 		}
 	}
 
-	// sort by name
 	sort.Slice(services, func(i, j int) bool {
 		return services[i].Name < services[j].Name
 	})
@@ -95,7 +89,6 @@ func Logs(name string, lines int) (string, error) {
 		"-n", fmt.Sprintf("%d", lines), "--no-pager")
 	out, err := cmd.CombinedOutput()
 	if err != nil || len(out) == 0 {
-		// fallback without sudo
 		out, err = exec.Command("journalctl", "-u", name,
 			"-n", fmt.Sprintf("%d", lines), "--no-pager").CombinedOutput()
 	}

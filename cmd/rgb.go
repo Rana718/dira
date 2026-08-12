@@ -26,12 +26,10 @@ var (
 	speedVal = map[string]int{"slow": 0, "med": 1, "fast": 2}
 )
 
-// sysfs format: "<save> <mode> <R> <G> <B> <speed>"
 func rgbVal(mode, r, g, b, speed, save int) string {
 	return fmt.Sprintf("%d %d %d %d %d %d", save, mode, r, g, b, speed)
 }
 
-// sysWrite uses raw O_WRONLY via python3 — sysfs rejects O_TRUNC used by tee/os.WriteFile
 func sysWrite(path, value string) error {
 	script := fmt.Sprintf("import os;fd=os.open(%q,os.O_WRONLY);os.write(fd,%q.encode());os.close(fd)", path, value)
 	cmd := exec.Command("sudo", "python3", "-c", script)
@@ -82,7 +80,6 @@ var keycolorCmd = &cobra.Command{
 			return fmt.Errorf("provide hex or R G B")
 		}
 
-		// use active mode as base; override only if -m was passed
 		mode := state.GetActiveMode()
 		speed := "med"
 		sv := 0
@@ -97,7 +94,6 @@ var keycolorCmd = &cobra.Command{
 				return err
 			}
 		} else {
-			// load saved speed for this mode
 			s, _ := state.Load(mode)
 			for k, v := range speedVal {
 				if v == s.Speed {

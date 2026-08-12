@@ -4,7 +4,6 @@ import (
 	"sort"
 )
 
-// Entry represents a single listening socket or connection.
 type Entry struct {
 	Proto   string
 	Addr    string
@@ -17,7 +16,6 @@ type Entry struct {
 	Warn    bool
 }
 
-// KnownPorts maps well-known port numbers to service names.
 var KnownPorts = map[int]string{
 	21: "FTP", 22: "SSH", 23: "Telnet ⚠", 25: "SMTP", 53: "DNS",
 	80: "HTTP", 110: "POP3", 111: "RPC ⚠", 135: "MSRPC ⚠",
@@ -29,13 +27,11 @@ var KnownPorts = map[int]string{
 	27017: "MongoDB", 41641: "Tailscale",
 }
 
-// SuspiciousPorts are ports that deserve a warning when publicly exposed.
 var SuspiciousPorts = map[int]bool{
 	23: true, 111: true, 135: true, 137: true, 138: true,
 	139: true, 445: true, 3389: true, 4444: true, 5900: true,
 }
 
-// sortEntries sorts entries: public first, then by port number.
 func sortEntries(entries []Entry) {
 	sort.Slice(entries, func(i, j int) bool {
 		if entries[i].Public != entries[j].Public {
@@ -45,7 +41,6 @@ func sortEntries(entries []Entry) {
 	})
 }
 
-// annotate fills in Service and Warn fields based on KnownPorts/SuspiciousPorts.
 func annotate(e *Entry) {
 	e.Service = KnownPorts[e.Port]
 	e.Warn = SuspiciousPorts[e.Port] && e.Public

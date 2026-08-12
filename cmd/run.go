@@ -31,12 +31,10 @@ Supports both Docker and Podman.`,
   dira run mongo        # instant: launch MongoDB with defaults`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// If an argument is given, try to match a preset and run instantly
 		if len(args) == 1 {
 			return runInstant(args[0])
 		}
 
-		// Otherwise, launch interactive TUI
 		m := container.NewRunModel()
 		result, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
 		if err != nil {
@@ -48,9 +46,7 @@ Supports both Docker and Podman.`,
 	},
 }
 
-// runInstant tries to match the argument to a preset and launches it immediately.
 func runInstant(name string) error {
-	// detect runtime
 	runtime := ""
 	for _, rt := range []string{"docker", "podman"} {
 		if isRuntimeAvailable(rt) {
@@ -62,7 +58,6 @@ func runInstant(name string) error {
 		return fmt.Errorf("neither docker nor podman found")
 	}
 
-	// find matching preset
 	presets := container.LoadPresets()
 	var matched *container.Preset
 	for i, p := range presets {
@@ -79,12 +74,10 @@ func runInstant(name string) error {
 	}
 
 	if matched == nil {
-		// not a preset — treat as image name, run with defaults
 		matched = &container.Preset{
 			Label: name,
 			Image: name,
 		}
-		// add :latest if no tag
 		if !strings.Contains(matched.Image, ":") {
 			matched.Image += ":latest"
 		}
@@ -92,7 +85,6 @@ func runInstant(name string) error {
 
 	fmt.Printf("Launching %s (%s)...\n", matched.Label, matched.Image)
 
-	// fix podman short-name issue
 	runPreset := *matched
 	if runtime == "podman" {
 		runPreset.Image = container.QualifyImage(runPreset.Image)

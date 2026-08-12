@@ -1,4 +1,3 @@
-//go:build linux
 
 package ports
 
@@ -14,7 +13,6 @@ import (
 
 var reProcess = regexp.MustCompile(`"([^"]+)",pid=(\d+)`)
 
-// Scan scans listening sockets for a given protocol using ss.
 func Scan(proto string, allSockets bool) ([]Entry, error) {
 	flag := "-tlnp"
 	if proto == "udp" {
@@ -35,7 +33,6 @@ func Scan(proto string, allSockets bool) ([]Entry, error) {
 	return parseSS(string(out), proto, allSockets), nil
 }
 
-// ScanAll scans all sockets (not just listening) using ss.
 func ScanAll() ([]Entry, error) {
 	cmd := exec.Command("sudo", "ss", "-anp")
 	cmd.Stdin = os.Stdin

@@ -10,7 +10,6 @@ import (
 	"strings"
 )
 
-// ── Types
 
 type CoreTemp struct {
 	Label string
@@ -50,7 +49,7 @@ type GPUInfo struct {
 	MaxMemMHz     int
 	CurClockMHz   int
 	TempC         int
-	MaxTempC      int // from nvidia-smi slowdown threshold
+	MaxTempC      int
 	FanPct        string
 	PState        string
 	IsIntegrated  bool
@@ -94,7 +93,7 @@ type SSDInfo struct {
 	PowerCycles    int
 	UnsafeShuts    int
 	MediaErrors    int
-	PCIeSpeed      string // e.g. "8GT/s x4"
+	PCIeSpeed      string
 }
 
 type WiFiInfo struct {
@@ -125,7 +124,6 @@ type SystemInfo struct {
 	Product string
 }
 
-// ── Gather
 
 func Gather() SystemInfo {
 	var s SystemInfo
@@ -158,7 +156,6 @@ func gatherCPU() CPUInfo {
 	c.PL1Watts = readSysInt("/sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uw") / 1_000_000
 	c.PL2Watts = readSysInt("/sys/class/powercap/intel-rapl:0/constraint_1_power_limit_uw") / 1_000_000
 
-	// find coretemp hwmon
 	hwmon := findHwmon("coretemp")
 	if hwmon != "" {
 		c.TempPkg = readSysInt(hwmon+"/temp1_input") / 1000
@@ -188,7 +185,6 @@ func gatherCPU() CPUInfo {
 func gatherGPUs() []GPUInfo {
 	var gpus []GPUInfo
 
-	// NVIDIA discrete GPUs
 	out, err := exec.Command("nvidia-smi",
 		"--query-gpu=name,driver_version,vbios_version,memory.total,memory.used,memory.free,clocks.max.gr,clocks.max.mem,clocks.gr,temperature.gpu,temperature.gpu.tlimit,fan.speed,pstate",
 		"--format=csv,noheader,nounits").Output()
@@ -211,7 +207,7 @@ func gatherGPUs() []GPUInfo {
 			g.TempC, _ = strconv.Atoi(p[9])
 			g.MaxTempC, _ = strconv.Atoi(p[10])
 			if g.MaxTempC == 0 {
-				g.MaxTempC = 95 // default for laptop GPUs where tlimit is N/A
+				g.MaxTempC = 95
 			}
 			g.FanPct = p[11]
 			g.PState = p[12]
@@ -219,7 +215,6 @@ func gatherGPUs() []GPUInfo {
 		}
 	}
 
-	// Intel integrated GPU (i915)
 	if name := intelGPUName(); name != "" {
 		ig := GPUInfo{Name: name, IsIntegrated: true}
 		gpus = append(gpus, ig)
@@ -298,7 +293,6 @@ func gatherBattery() *BatteryInfo {
 	if b.ChargeDesign > 0 {
 		b.HealthPct = b.ChargeFull * 100 / b.ChargeDesign
 	}
-	// acpitz temp2 is battery area temp
 	hw := findHwmon("acpitz")
 	if hw != "" {
 		t := readSysInt(hw + "/temp2_input")
@@ -318,7 +312,6 @@ func gatherSSD() *SSDInfo {
 	}
 	s := &SSDInfo{}
 
-	// hwmon for NVMe
 	hw := findHwmon("nvme")
 	if hw != "" {
 		s.TempC = readSysInt(hw+"/temp1_input") / 1000
@@ -326,7 +319,6 @@ func gatherSSD() *SSDInfo {
 		s.CritTempC = readSysInt(hw+"/temp1_crit") / 1000
 	}
 
-	// PCIe link speed
 	s.PCIeSpeed = nvmePCIeSpeed()
 
 	scanner := bufio.NewScanner(strings.NewReader(string(out)))
@@ -352,11 +344,11 @@ func gatherSSD() *SSDInfo {
 		case "SMART overall-health self-assessment test result":
 			s.HealthStatus = v
 		case "Percentage Used":
-			fmt.Sscanf(v, "%d", &s.WearPct) //nolint:errcheck
+			fmt.Sscanf(v, "%d", &s.WearPct)
 		case "Available Spare":
-			fmt.Sscanf(v, "%d", &s.SpareAvailPct) //nolint:errcheck
+			fmt.Sscanf(v, "%d", &s.SpareAvailPct)
 		case "Available Spare Threshold":
-			fmt.Sscanf(v, "%d", &s.SpareThreshPct) //nolint:errcheck
+			fmt.Sscanf(v, "%d", &s.SpareThreshPct)
 		case "Data Units Read":
 			s.ReadTB = parseTB(v)
 		case "Data Units Written":
@@ -375,7 +367,6 @@ func gatherSSD() *SSDInfo {
 }
 
 func gatherWiFi() *WiFiInfo {
-	// find WiFi interface
 	iface := ""
 	out, _ := exec.Command("iw", "dev").Output()
 	for _, line := range strings.Split(string(out), "\n") {
@@ -390,12 +381,10 @@ func gatherWiFi() *WiFiInfo {
 
 	w := &WiFiInfo{Interface: iface}
 
-	// card name from lspci
 	lspciOut, _ := exec.Command("lspci").Output()
 	for _, line := range strings.Split(string(lspciOut), "\n") {
 		lower := strings.ToLower(line)
 		if strings.Contains(lower, "network") || strings.Contains(lower, "wireless") {
-			// strip PCI address
 			if idx := strings.Index(line, ": "); idx >= 0 {
 				w.Name = strings.TrimSpace(line[idx+2:])
 			}
@@ -403,20 +392,16 @@ func gatherWiFi() *WiFiInfo {
 		}
 	}
 
-	// driver
 	driverLink, _ := os.Readlink(fmt.Sprintf("/sys/class/net/%s/device/driver", iface))
 	w.Driver = filepath.Base(driverLink)
 
-	// MAC
 	w.MAC = readSysTrim(fmt.Sprintf("/sys/class/net/%s/address", iface))
 
-	// temp from mt7921_phy0 hwmon
 	hw := findHwmon("mt7921_phy0")
 	if hw != "" {
 		w.TempC = readSysInt(hw+"/temp1_input") / 1000
 	}
 
-	// current link rate, freq, signal via iwconfig
 	iwOut, _ := exec.Command("iwconfig", iface).Output()
 	for _, line := range strings.Split(string(iwOut), "\n") {
 		line = strings.TrimSpace(line)
@@ -457,7 +442,6 @@ func gatherBIOS() BIOSInfo {
 	}
 }
 
-// ── Helpers
 
 func findHwmon(name string) string {
 	matches, _ := filepath.Glob("/sys/class/hwmon/hwmon*")
@@ -499,7 +483,6 @@ func nvmePCIeSpeed() string {
 			inNVMe = true
 		}
 		if inNVMe && strings.Contains(line, "LnkSta:") {
-			// "LnkSta: Speed 8GT/s, Width x4"
 			line = strings.TrimSpace(line)
 			line = strings.TrimPrefix(line, "LnkSta:")
 			return strings.TrimSpace(line)

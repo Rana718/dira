@@ -19,7 +19,7 @@ type Container struct {
 	Status     string
 	Ports      string
 	RunningFor string
-	Runtime    string // "docker" or "podman"
+	Runtime    string
 	Running    bool
 }
 
@@ -63,7 +63,6 @@ func runtimeAvailable(rt string) bool {
 	return err == nil
 }
 
-// ── List containers via SDK ──
 
 func List() []Container {
 	var out []Container
@@ -75,7 +74,6 @@ func List() []Container {
 
 		cli, err := newDockerClient(rt)
 		if err != nil {
-			// no socket available, use CLI directly
 			out = append(out, listCLI(rt)...)
 			continue
 		}
@@ -83,7 +81,6 @@ func List() []Container {
 		ctx := context.Background()
 		if _, err := cli.Ping(ctx, client.PingOptions{}); err != nil {
 			cli.Close()
-			// daemon not responding, use CLI
 			out = append(out, listCLI(rt)...)
 			continue
 		}
@@ -102,7 +99,6 @@ func List() []Container {
 			}
 			running := strings.ToLower(string(c.State)) == "running"
 
-			// format ports
 			var portParts []string
 			for _, p := range c.Ports {
 				if p.PublicPort > 0 {
@@ -123,7 +119,7 @@ func List() []Container {
 				Image:      c.Image,
 				Status:     c.Status,
 				Ports:      strings.Join(portParts, ", "),
-				RunningFor: c.Status, // status contains uptime info
+				RunningFor: c.Status,
 				Runtime:    rt,
 				Running:    running,
 			})
@@ -132,7 +128,6 @@ func List() []Container {
 	return out
 }
 
-// listCLI is the fallback using docker/podman CLI.
 func listCLI(rt string) []Container {
 	var out []Container
 	b, err := exec.Command(rt, "ps", "-a",
@@ -163,7 +158,6 @@ func listCLI(rt string) []Container {
 	return out
 }
 
-// ── Container actions via SDK ──
 
 func Logs(rt, id string, tail int) (string, error) {
 	cli, err := newDockerClient(rt)
@@ -184,7 +178,6 @@ func Logs(rt, id string, tail int) (string, error) {
 	defer reader.Close()
 
 	b, _ := io.ReadAll(reader)
-	// strip docker log header bytes (8 byte prefix per line)
 	return stripDockerLogHeaders(string(b)), nil
 }
 
@@ -193,12 +186,10 @@ func logsCLI(rt, id string, tail int) (string, error) {
 	return string(b), err
 }
 
-// stripDockerLogHeaders removes the 8-byte docker log stream prefix from each line.
 func stripDockerLogHeaders(s string) string {
 	var out strings.Builder
 	for _, line := range strings.Split(s, "\n") {
 		if len(line) >= 8 {
-			// check if first byte is a stream type marker (0=stdin,1=stdout,2=stderr)
 			if line[0] <= 2 && line[1] == 0 && line[2] == 0 && line[3] == 0 {
 				out.WriteString(line[8:])
 				out.WriteByte('\n')
@@ -247,8 +238,6 @@ func Delete(rt, id string) error {
 	return err
 }
 
-// GetStats fetches live stats for a running container.
-// The SDK stats stream is complex to parse, so we use CLI for this.
 func GetStats(rt, id string) (Stats, error) {
 	b, err := exec.Command(rt, "stats", id, "--no-stream",
 		"--format", "{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}\t{{.BlockIO}}").Output()
@@ -267,7 +256,6 @@ func GetStats(rt, id string) (Stats, error) {
 	}, nil
 }
 
-// Inspect gets detailed container information via SDK.
 func Inspect(rt, id string) (InspectInfo, error) {
 	cli, err := newDockerClient(rt)
 	if err != nil {
@@ -296,7 +284,6 @@ func Inspect(rt, id string) (InspectInfo, error) {
 		info.Status = string(data.State.Status)
 	}
 
-	// resource limits
 	if data.HostConfig != nil {
 		res := data.HostConfig.Resources
 		info.Resources = ResourceLimits{
@@ -310,7 +297,6 @@ func Inspect(rt, id string) (InspectInfo, error) {
 		}
 	}
 
-	// mounts
 	for _, m := range data.Mounts {
 		info.Mounts = append(info.Mounts, Mount{
 			Source:      m.Source,
@@ -329,7 +315,6 @@ func derefInt64(p *int64) int64 {
 	return *p
 }
 
-// inspectCLI is the fallback using docker/podman inspect CLI.
 func inspectCLI(rt, id string) (InspectInfo, error) {
 	b, err := exec.Command(rt, "inspect", id).Output()
 	if err != nil {
@@ -404,9 +389,7 @@ func int64Field(m map[string]any, key string) int64 {
 	return 0
 }
 
-// ── Additional container info ──
 
-// ContainerDetail holds extended info shown in the detail view.
 type ContainerDetail struct {
 	ID         string
 	Name       string
@@ -423,7 +406,6 @@ type ContainerDetail struct {
 	Resources  ResourceLimits
 }
 
-// GetDetail fetches extended container details.
 func GetDetail(rt, id string) (ContainerDetail, error) {
 	cli, err := newDockerClient(rt)
 	if err != nil {
@@ -494,7 +476,6 @@ func getDetailCLI(rt, id string) (ContainerDetail, error) {
 	}, nil
 }
 
-// ImageHistory returns pull/create layers info for an image.
 type ImageLayer struct {
 	CreatedAt string
 	CreatedBy string
@@ -502,7 +483,6 @@ type ImageLayer struct {
 }
 
 func GetImageHistory(rt, imageRef string) ([]ImageLayer, error) {
-	// use CLI — SDK history response is complex
 	b, err := exec.Command(rt, "history", "--no-trunc",
 		"--format", "{{.CreatedAt}}\t{{.CreatedBy}}\t{{.Size}}", imageRef).Output()
 	if err != nil {
@@ -530,10 +510,7 @@ func GetImageHistory(rt, imageRef string) ([]ImageLayer, error) {
 	return layers, nil
 }
 
-// EditConfig opens the container's config in an editor, then recreates with the new config.
-// Returns the new container ID or error.
 func EditConfig(rt, id string) error {
-	// get current inspect as JSON
 	cli, err := newDockerClient(rt)
 	if err != nil {
 		return fmt.Errorf("cannot connect to daemon")
@@ -546,7 +523,6 @@ func EditConfig(rt, id string) error {
 		return fmt.Errorf("inspect: %w", err)
 	}
 
-	// write editable config to temp file
 	editable := buildEditableConfig(result.Container)
 	tmpFile, err := writeTempJSON(editable)
 	if err != nil {
@@ -556,7 +532,6 @@ func EditConfig(rt, id string) error {
 	return applyEditedConfig(rt, id, tmpFile)
 }
 
-// EditableConfig is the subset of config users can safely edit.
 type EditableConfig struct {
 	Name    string            `json:"name"`
 	Image   string            `json:"image"`
@@ -567,12 +542,9 @@ type EditableConfig struct {
 }
 
 func buildEditableConfig(data interface{}) EditableConfig {
-	// Use type assertion on the InspectResponse
 	type inspectable interface {
 		GetName() string
 	}
-	// We'll work with the raw JSON approach since the InspectResponse fields
-	// are available directly
 	b, _ := json.Marshal(data)
 	var raw map[string]any
 	json.Unmarshal(b, &raw)
@@ -630,12 +602,7 @@ func writeTempJSON(cfg EditableConfig) (string, error) {
 	return f.Name(), nil
 }
 
-// applyEditedConfig opens editor, reads modified config, recreates container.
 func applyEditedConfig(rt, id, tmpFile string) error {
-	// this function is called via tea.ExecProcess in the TUI,
-	// so the editor runs in the terminal. After exit we read the file.
-	// The actual exec happens in the TUI layer — here we just do the
-	// stop-remove-recreate logic after the file is edited.
 
 	b, err := os.ReadFile(tmpFile)
 	if err != nil {
@@ -648,13 +615,10 @@ func applyEditedConfig(rt, id, tmpFile string) error {
 		return fmt.Errorf("invalid JSON: %w", err)
 	}
 
-	// stop old container
 	_ = Stop(rt, id)
 
-	// remove old container
 	_ = Delete(rt, id)
 
-	// recreate with new config
 	preset := Preset{
 		Label:   cfg.Name,
 		Name:    cfg.Name,
@@ -673,7 +637,6 @@ func applyEditedConfig(rt, id, tmpFile string) error {
 	return err
 }
 
-// GetConfigTempFile creates a temp file with the editable config and returns path.
 func GetConfigTempFile(rt, id string) (string, error) {
 	cli, err := newDockerClient(rt)
 	if err != nil {
@@ -684,7 +647,6 @@ func GetConfigTempFile(rt, id string) (string, error) {
 	ctx := context.Background()
 	result, err := cli.ContainerInspect(ctx, id, client.ContainerInspectOptions{})
 	if err != nil {
-		// fallback
 		b, err := exec.Command(rt, "inspect", id).Output()
 		if err != nil {
 			return "", err
@@ -702,7 +664,6 @@ func GetConfigTempFile(rt, id string) (string, error) {
 	return writeTempJSON(cfg)
 }
 
-// ApplyEditedConfig reads the temp file and recreates the container.
 func ApplyEditedConfig(rt, id, tmpFile string) error {
 	return applyEditedConfig(rt, id, tmpFile)
 }

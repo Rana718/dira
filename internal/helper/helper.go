@@ -5,7 +5,6 @@ import (
 	"strings"
 )
 
-// Pad pads s with spaces to width using byte length.
 func Pad(s string, width int) string {
 	if len(s) >= width {
 		return s
@@ -13,7 +12,6 @@ func Pad(s string, width int) string {
 	return s + strings.Repeat(" ", width-len(s))
 }
 
-// PadR pads s using rune count (safe for multi-byte chars like —, ●, …)
 func PadR(s string, width int) string {
 	r := len([]rune(s))
 	if r >= width {
@@ -22,7 +20,6 @@ func PadR(s string, width int) string {
 	return s + strings.Repeat(" ", width-r)
 }
 
-// FmtBytes formats bytes into human-readable MB/GB string.
 func FmtBytes(b int64) string {
 	const (
 		MB = 1024 * 1024

@@ -43,7 +43,6 @@ var infoCmd = &cobra.Command{
   dira info --gpu --ssd      # GPU + SSD only`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// if no flags → show all
 		showAll := !flagCPU && !flagGPU && !flagRAM && !flagBattery && !flagSSD && !flagWiFi && !flagBIOS
 
 		fmt.Println(infoDivider.Render("Gathering info..."))

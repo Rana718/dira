@@ -31,7 +31,6 @@ const (
 
 type customField struct{ label, key, value string }
 
-// TUIModel is the bubbletea model for the power command.
 type TUIModel struct {
 	profiles  []Profile
 	cursor    int
@@ -303,7 +302,6 @@ func buildProfile(fields []customField) (Profile, error) {
 	}, nil
 }
 
-// IsBuiltin returns true if name matches a built-in profile.
 func IsBuiltin(name string) bool {
 	for _, p := range BuiltinProfiles {
 		if p.Name == name {

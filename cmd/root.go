@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// ── Brand colours
 
 var (
 	pink  = lipgloss.NewStyle().Foreground(lipgloss.Color("#CD2976")).Bold(true)
@@ -58,6 +57,7 @@ func printHome(version string) {
 			{"info", "show hardware info  (--cpu --gpu --ssd ...)"},
 			{"disk", "disk usage, partitions, SSD health"},
 			{"service", "manage systemd services"},
+			{"clean", "interactive cleanup  (caches, logs, containers…)"},
 		}},
 		{"Network & Dev", []entry{
 			{"ports", "show open ports and processes"},
@@ -104,7 +104,7 @@ func printColorHelp(cmd *cobra.Command) {
 			"keylight": true, "keystate": true,
 		}},
 		{"System", map[string]bool{
-			"power": true, "info": true, "disk": true, "service": true,
+			"power": true, "info": true, "disk": true, "service": true, "clean": true,
 		}},
 		{"Network & Dev", map[string]bool{
 			"ports": true, "container": true, "run": true,
@@ -122,7 +122,6 @@ func printColorHelp(cmd *cobra.Command) {
 	fmt.Println("    " + bold.Render("dira") + " " + pink.Render("[command]") + " " + dim.Render("[flags]"))
 	fmt.Println()
 
-	// bucket commands into groups
 	buckets := make(map[string][]cmdEntry)
 	for _, c := range cmds {
 		placed := false
@@ -161,7 +160,6 @@ func printColorHelp(cmd *cobra.Command) {
 	fmt.Println()
 }
 
-// ── Root command
 
 var appVersion string
 
@@ -192,6 +190,6 @@ func init() {
 	rootCmd.AddCommand(
 		keycolorCmd, keymodeCmd, keyspeedCmd, keylightCmd, keystateCmd,
 		powerCmd, infoCmd, portsCmd, containerCmd, diskCmd, serviceCmd,
-		setwallCmd,
+		cleanCmd, setwallCmd,
 	)
 }

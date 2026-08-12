@@ -446,5 +446,4 @@ func ParseInfo(raw string) string {
 	return s
 }
 
-// View implements tea.Model.
 func (m Model) View() string { return m.Render() }

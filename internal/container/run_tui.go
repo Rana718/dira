@@ -10,7 +10,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// ── Run TUI Styles
 
 var (
 	runTitle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("99"))
@@ -25,7 +24,6 @@ var (
 	runCat    = lipgloss.NewStyle().Foreground(lipgloss.Color("99")).Bold(true)
 )
 
-// ── Steps
 
 type RunStep int
 
@@ -41,7 +39,6 @@ const (
 	StepDone
 )
 
-// ── Edit fields
 
 type EditField int
 
@@ -53,7 +50,6 @@ const (
 	EditFieldCount
 )
 
-// ── Messages
 
 type SearchResultMsg struct{ Results []string }
 type TagResultMsg struct{ Tags []string }
@@ -62,7 +58,6 @@ type RunDoneMsg struct {
 	Err    error
 }
 
-// ── Model
 
 type RunModel struct {
 	Step    RunStep
@@ -77,14 +72,12 @@ type RunModel struct {
 	FilterInput     textinput.Model
 	Filtering       bool
 
-	// edit fields
 	EditCursor  EditField
 	NameInput   textinput.Model
 	EImageInput textinput.Model
 	EPortInput  textinput.Model
 	EEnvInput   textinput.Model
 
-	// custom image flow
 	ImageInput textinput.Model
 	TagInput   textinput.Model
 	PortInput  textinput.Model
@@ -206,13 +199,11 @@ func (m RunModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 	}
 
-	// forward to active text inputs
 	switch m.Step {
 	case StepPreset:
 		if m.Filtering {
 			var cmd tea.Cmd
 			m.FilterInput, cmd = m.FilterInput.Update(msg)
-			// only re-filter if value actually changed
 			newVal := m.FilterInput.Value()
 			newFiltered := FilterPresets(m.AllPresets, newVal)
 			if len(newFiltered) != len(m.FilteredPresets) {
@@ -258,7 +249,6 @@ func (m RunModel) updateEditInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m RunModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
-	// only ctrl+c force-quits from anywhere
 	if key == "ctrl+c" {
 		return m, tea.Quit
 	}
@@ -404,12 +394,10 @@ func (m RunModel) handlePreset(key string, msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 	return m, nil
 }
 
-// enterEdit prepares the edit screen with current preset values.
 func (m *RunModel) enterEdit() {
 	m.Step = StepEdit
 	m.EditCursor = EditName
 
-	// pre-fill edit fields
 	m.NameInput.SetValue(sanitizeName(m.Preset.Label))
 	m.EImageInput.SetValue(m.Preset.Image)
 	if len(m.Preset.Ports) > 0 {
@@ -436,7 +424,6 @@ func (m *RunModel) enterEdit() {
 func (m RunModel) handleEdit(key string, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc":
-		// go back to preset list
 		m.Step = StepPreset
 		m.Cursor = 0
 		m.ScrollOffset = 0
@@ -454,7 +441,6 @@ func (m RunModel) handleEdit(key string, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.focusCurrentEdit()
 		return m, textinput.Blink
 	case "enter":
-		// apply edits and go to confirm
 		m.applyEdits()
 		m.Step = StepConfirm
 		return m, nil
@@ -495,19 +481,16 @@ func (m *RunModel) focusCurrentEdit() {
 }
 
 func (m *RunModel) applyEdits() {
-	// name
 	name := strings.TrimSpace(m.NameInput.Value())
 	if name != "" {
 		m.Preset.Label = name
 	}
 
-	// image
 	img := strings.TrimSpace(m.EImageInput.Value())
 	if img != "" {
 		m.Preset.Image = img
 	}
 
-	// ports
 	raw := m.EPortInput.Value()
 	m.Preset.Ports = nil
 	for _, p := range strings.Split(raw, ",") {
@@ -517,7 +500,6 @@ func (m *RunModel) applyEdits() {
 		}
 	}
 
-	// env
 	envRaw := m.EEnvInput.Value()
 	m.Preset.Env = nil
 	if envRaw != "" {
@@ -540,7 +522,6 @@ func (m *RunModel) adjustScroll() {
 	}
 }
 
-// presetsEqual checks if two preset slices have the same labels (quick check).
 func presetsEqual(a, b []Preset) bool {
 	if len(a) != len(b) {
 		return false
@@ -694,7 +675,6 @@ func (m RunModel) handleConfirm(key string) (tea.Model, tea.Cmd) {
 		m.Step = StepRunning
 		rt := m.Runtime
 		preset := m.Preset
-		// fix podman short-name: prefix with docker.io/library/ if needed
 		if rt == "podman" {
 			preset.Image = QualifyImage(preset.Image)
 		}
@@ -704,11 +684,9 @@ func (m RunModel) handleConfirm(key string) (tea.Model, tea.Cmd) {
 			return RunDoneMsg{Output: out, Err: err}
 		}
 	case "e":
-		// go back to edit
 		m.enterEdit()
 		return m, textinput.Blink
 	case "q", "esc":
-		// go back to preset menu, NOT quit
 		m.Step = StepPreset
 		m.Cursor = 0
 		m.ScrollOffset = 0
@@ -719,23 +697,17 @@ func (m RunModel) handleConfirm(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// QualifyImage adds docker.io/library/ prefix for podman if the image is a
-// short name without a registry (e.g. "redis:8-alpine" → "docker.io/library/redis:8-alpine").
 func QualifyImage(img string) string {
-	// already has a registry prefix (contains a dot before the first slash)
 	if slashIdx := strings.IndexByte(img, '/'); slashIdx > 0 {
 		prefix := img[:slashIdx]
 		if strings.Contains(prefix, ".") || strings.Contains(prefix, ":") {
-			return img // already qualified like docker.io/... or ghcr.io/...
+			return img
 		}
-		// has a slash but no dot — like "bitnami/kafka:latest" → "docker.io/bitnami/kafka:latest"
 		return "docker.io/" + img
 	}
-	// no slash at all — official image like "redis:8-alpine"
 	return "docker.io/library/" + img
 }
 
-// ── Views
 
 func (m RunModel) View() string {
 	switch m.Step {
@@ -799,7 +771,6 @@ func (m RunModel) viewPreset() string {
 	for i := m.ScrollOffset; i < end; i++ {
 		p := presets[i]
 
-		// only show category headers when NOT filtering
 		if !m.Filtering && p.Category != "" && p.Category != lastCat {
 			lastCat = p.Category
 			catLabel := categoryLabel(p.Category)
@@ -1010,7 +981,6 @@ func (m RunModel) viewConfirm() string {
 		s += runLabel.Render("  Cmd:") + runDim.Render(strings.Join(m.Preset.Cmd, " ")) + "\n"
 	}
 
-	// show the actual command that will run (with podman prefix if needed)
 	displayPreset := m.Preset
 	if m.Runtime == "podman" {
 		displayPreset.Image = QualifyImage(displayPreset.Image)

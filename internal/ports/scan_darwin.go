@@ -1,4 +1,3 @@
-//go:build darwin
 
 package ports
 
@@ -11,11 +10,8 @@ import (
 	"strings"
 )
 
-// lsof output pattern: COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME
-// NAME field for TCP: host:port (LISTEN) or host:port->remote:port (ESTABLISHED)
 var reLsofAddr = regexp.MustCompile(`^(.+):(\d+)$`)
 
-// Scan uses lsof to find listening sockets on macOS.
 func Scan(proto string, allSockets bool) ([]Entry, error) {
 	protoFlag := "TCP"
 	if proto == "udp" {
@@ -26,14 +22,12 @@ func Scan(proto string, allSockets bool) ([]Entry, error) {
 	if !allSockets {
 		args = append(args, "-sTCP:LISTEN")
 		if proto == "udp" {
-			// UDP has no LISTEN state, just show all UDP
 			args = []string{"-i", "UDP", "-n", "-P"}
 		}
 	}
 
 	out, err := exec.Command("lsof", args...).Output()
 	if err != nil {
-		// try with sudo
 		out, err = exec.Command("sudo", append([]string{"lsof"}, args...)...).Output()
 		if err != nil {
 			return nil, fmt.Errorf("lsof not available: %w", err)
@@ -45,7 +39,6 @@ func Scan(proto string, allSockets bool) ([]Entry, error) {
 	return entries, nil
 }
 
-// ScanAll returns all TCP + UDP sockets on macOS.
 func ScanAll() ([]Entry, error) {
 	args := []string{"-i", "-n", "-P"}
 	out, err := exec.Command("lsof", args...).Output()
@@ -69,7 +62,6 @@ func parseLsof(out, defaultProto string, allSockets bool) []Entry {
 	scanner := bufio.NewScanner(strings.NewReader(out))
 	for scanner.Scan() {
 		line := scanner.Text()
-		// skip header
 		if strings.HasPrefix(line, "COMMAND") {
 			continue
 		}
@@ -81,9 +73,8 @@ func parseLsof(out, defaultProto string, allSockets bool) []Entry {
 
 		command := fields[0]
 		pid := fields[1]
-		proto := strings.ToLower(fields[7]) // NODE field: TCP or UDP
+		proto := strings.ToLower(fields[7])
 		if proto != "tcp" && proto != "udp" {
-			// try field 8 for some lsof versions
 			if len(fields) > 8 {
 				lower := strings.ToLower(fields[8])
 				if lower == "tcp" || lower == "udp" {
@@ -97,7 +88,6 @@ func parseLsof(out, defaultProto string, allSockets bool) []Entry {
 		}
 
 		nameField := fields[len(fields)-1]
-		// handle state in parentheses: "host:port (LISTEN)"
 		state := ""
 		if pIdx := strings.LastIndex(line, "("); pIdx > 0 {
 			stateRaw := line[pIdx+1:]
@@ -109,13 +99,10 @@ func parseLsof(out, defaultProto string, allSockets bool) []Entry {
 			continue
 		}
 
-		// parse address:port from name field
-		// strip ->remote for established connections
 		local := nameField
 		if arrow := strings.Index(local, "->"); arrow > 0 {
 			local = local[:arrow]
 		}
-		// remove (STATE) suffix
 		if paren := strings.Index(local, "("); paren > 0 {
 			local = local[:paren]
 		}
@@ -123,7 +110,6 @@ func parseLsof(out, defaultProto string, allSockets bool) []Entry {
 
 		m := reLsofAddr.FindStringSubmatch(local)
 		if m == nil {
-			// try parsing IPv6 like [::1]:port or *:port
 			lastColon := strings.LastIndex(local, ":")
 			if lastColon < 0 {
 				continue

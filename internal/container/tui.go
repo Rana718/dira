@@ -14,7 +14,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// ── Styles
 var (
 	ctHdr    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("99"))
 	ctSel    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212"))
@@ -32,7 +31,6 @@ var (
 	ctNet    = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
 )
 
-// ── Messages
 
 type Mode int
 
@@ -55,7 +53,6 @@ func StatsTickCmd() tea.Cmd {
 	})
 }
 
-// ── Model
 
 type Model struct {
 	Containers []Container
@@ -270,7 +267,6 @@ func (m Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			break
 		}
 		rt, id, name := c.Runtime, c.ID, c.Name
-		// List common config paths, let user pick, copy out, edit locally, copy back
 		return m, tea.ExecProcess(
 			exec.Command("/bin/sh", "-c", editFileScript(rt, id, name)),
 			func(err error) tea.Msg {
@@ -281,7 +277,6 @@ func (m Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// ── Views
 
 func (m Model) Render() string {
 	helpBar := m.renderHelp()
@@ -402,7 +397,6 @@ func (m Model) viewList() string {
 			cpuColor.Render(cpuStr),
 			memColor.Render(memStr),
 		)
-		// overflow ports — indented to align under PORTS column
 		indent := strings.Repeat(" ", 2+wName+2+wID+2+wRuntime+2+wStatus+2+wUptime+2)
 		for _, extra := range portsLines[1:] {
 			s += indent + portColor.Render(helper.PadR(extra, wPorts)) + "\n"
@@ -417,7 +411,6 @@ func (m Model) viewList() string {
 	return s
 }
 
-// ── Renderers ─────────────────────────────────────────────────────────────────
 
 func RenderInfo(info InspectInfo) string {
 	kv := func(k, v string) string {
@@ -488,7 +481,6 @@ func RenderVolumes(info InspectInfo) string {
 	return s
 }
 
-// parsePorts parses docker port strings like
 func parsePorts(raw string, wPorts int) []string {
 	if raw == "" {
 		return []string{"—"}
@@ -519,7 +511,6 @@ func parsePorts(raw string, wPorts int) []string {
 		return []string{"—"}
 	}
 
-	// pack as many as fit on each line
 	var lines []string
 	line := ""
 	for _, p := range unique {
@@ -548,11 +539,6 @@ func formatPort(s string) string {
 
 func (m Model) View() string { return m.Render() }
 
-// editFileScript generates a shell script that:
-// 1. Lists the file tree inside the container
-// 2. Lets user type a path to edit
-// 3. Copies the file out, opens in local editor
-// 4. Copies back and optionally restarts the container
 func editFileScript(rt, id, name string) string {
 	editor := getEditor()
 	return fmt.Sprintf(`
@@ -601,7 +587,6 @@ rm -f "$tmpfile"
 `, name, id[:12], rt, id, rt, id, editor, rt, id, rt, id)
 }
 
-// renderHistory formats image layers for display.
 func renderHistory(layers []ImageLayer) string {
 	if len(layers) == 0 {
 		return ctDim.Render("  No history available.")
@@ -619,7 +604,6 @@ func renderHistory(layers []ImageLayer) string {
 	return s
 }
 
-// getEditor returns the user's preferred editor.
 func getEditor() string {
 	if e := os.Getenv("EDITOR"); e != "" {
 		return e

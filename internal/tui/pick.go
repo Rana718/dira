@@ -55,7 +55,6 @@ func (p picker) View() string {
 	return s + pickerNorm.Render("\n↑/↓  enter select")
 }
 
-// Pick runs a TUI picker and returns the chosen item or error if cancelled.
 func Pick(title string, choices []string) (string, error) {
 	result, err := tea.NewProgram(picker{title: title, choices: choices}, tea.WithAltScreen()).Run()
 	if err != nil {
@@ -67,7 +66,6 @@ func Pick(title string, choices []string) (string, error) {
 	return "", fmt.Errorf("cancelled")
 }
 
-// ColorizeLogs adds color to log lines based on level keywords.
 func ColorizeLogs(raw string) string {
 	var out string
 	for _, line := range splitLines(raw) {

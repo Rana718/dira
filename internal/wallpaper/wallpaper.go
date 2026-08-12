@@ -51,7 +51,6 @@ func Monitors() ([]string, error) {
 	var monitors []string
 	for _, line := range strings.Split(string(out), "\n") {
 		if strings.HasPrefix(line, "Monitor ") {
-			// "Monitor eDP-1 (ID 0):"
 			parts := strings.Fields(line)
 			if len(parts) >= 2 {
 				monitors = append(monitors, parts[1])

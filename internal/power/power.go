@@ -13,7 +13,6 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// ── Types
 
 type Profile struct {
 	Name      string
@@ -42,7 +41,6 @@ type SysInfo struct {
 	CPUTempPkg  int
 }
 
-// ── Built-in profiles
 
 var BuiltinProfiles = []Profile{
 	{
@@ -79,7 +77,6 @@ var BuiltinProfiles = []Profile{
 	},
 }
 
-// ── DB
 
 func dbPath() string {
 	dir, _ := os.UserConfigDir()
@@ -171,7 +168,6 @@ func GetActiveProfile() string {
 	return name
 }
 
-// ── Apply
 
 func runSudo(name string, args ...string) error {
 	cmd := exec.Command("sudo", append([]string{name}, args...)...)
@@ -182,7 +178,7 @@ func runSudo(name string, args ...string) error {
 
 func Apply(p Profile) error {
 	if p.CPUMaxMHz > 0 {
-		runSudo("cpupower", "frequency-set", "-u", fmt.Sprintf("%dMHz", p.CPUMaxMHz)) //nolint:errcheck
+		runSudo("cpupower", "frequency-set", "-u", fmt.Sprintf("%dMHz", p.CPUMaxMHz))
 	}
 
 	raplBase := "/sys/class/powercap/intel-rapl:0"
@@ -208,7 +204,6 @@ func Apply(p Profile) error {
 	return nil
 }
 
-// ── SysInfo
 
 func ReadSysInfo() SysInfo {
 	var s SysInfo
@@ -242,7 +237,6 @@ func ReadSysInfo() SysInfo {
 	return s
 }
 
-// ── helpers
 
 func readIntFile(path string) int {
 	if path == "" {

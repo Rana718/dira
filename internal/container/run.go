@@ -16,10 +16,8 @@ import (
 	"github.com/moby/moby/client"
 )
 
-//go:embed presets.json
 var presetsJSON embed.FS
 
-// Preset defines a quick-run template for popular container images.
 type Preset struct {
 	Label    string            `json:"label"`
 	Image    string            `json:"image"`
@@ -31,7 +29,6 @@ type Preset struct {
 	Name     string            `json:"name,omitempty"`
 }
 
-// LoadPresets reads the embedded presets.json and returns all presets.
 func LoadPresets() []Preset {
 	data, err := presetsJSON.ReadFile("presets.json")
 	if err != nil {
@@ -45,7 +42,6 @@ func LoadPresets() []Preset {
 	return presets
 }
 
-// FilterPresets returns presets matching the query (case-insensitive substring match).
 func FilterPresets(presets []Preset, query string) []Preset {
 	if query == "" {
 		return presets
@@ -64,11 +60,7 @@ func FilterPresets(presets []Preset, query string) []Preset {
 	return matched
 }
 
-// ── Docker/Podman SDK client ──
 
-// newDockerClient creates a moby client connected to the daemon.
-// For podman, it connects to the podman docker-compatible socket.
-// Returns error if no socket found for the given runtime.
 func newDockerClient(runtime string) (*client.Client, error) {
 	if runtime == "podman" {
 		sock := podmanSocket()
@@ -81,10 +73,8 @@ func newDockerClient(runtime string) (*client.Client, error) {
 		)
 	}
 
-	// docker — check socket exists first
 	dockerSock := "/var/run/docker.sock"
 	if !isSocket(dockerSock) {
-		// also try user socket
 		userSock := fmt.Sprintf("/run/user/%d/docker.sock", os.Getuid())
 		if !isSocket(userSock) {
 			return nil, fmt.Errorf("docker socket not found")
@@ -98,7 +88,6 @@ func newDockerClient(runtime string) (*client.Client, error) {
 	)
 }
 
-// podmanSocket finds the podman socket path.
 func podmanSocket() string {
 	uid := os.Getuid()
 	paths := []string{
@@ -114,12 +103,10 @@ func podmanSocket() string {
 	return ""
 }
 
-// daemonSocket returns the socket path for the given runtime, or "" if none found.
 func daemonSocket(runtime string) string {
 	if runtime == "podman" {
 		return podmanSocket()
 	}
-	// docker
 	paths := []string{
 		"/var/run/docker.sock",
 		fmt.Sprintf("/run/user/%d/docker.sock", os.Getuid()),
@@ -140,10 +127,7 @@ func isSocket(path string) bool {
 	return fi.Mode()&os.ModeSocket != 0
 }
 
-// ── Container run ──
 
-// RunContainer creates and starts a container via the Docker/Podman SDK.
-// Falls back to CLI if the daemon socket is not reachable.
 func RunContainer(runtime string, p Preset, detach bool) (string, error) {
 	ctx := context.Background()
 
@@ -153,25 +137,21 @@ func RunContainer(runtime string, p Preset, detach bool) (string, error) {
 	}
 	defer cli.Close()
 
-	// ping to check connection
 	if _, err := cli.Ping(ctx, client.PingOptions{}); err != nil {
 		return runContainerCLI(runtime, p, detach)
 	}
 
-	// pull image (best-effort)
 	pullResp, err := cli.ImagePull(ctx, p.Image, client.ImagePullOptions{})
 	if err == nil {
 		io.Copy(io.Discard, pullResp)
 		pullResp.Close()
 	}
 
-	// build env
 	var envList []string
 	for k, v := range p.Env {
 		envList = append(envList, k+"="+v)
 	}
 
-	// build port bindings
 	exposedPorts := network.PortSet{}
 	portBindings := network.PortMap{}
 	for _, mapping := range p.Ports {
@@ -190,10 +170,8 @@ func RunContainer(runtime string, p Preset, detach bool) (string, error) {
 		}
 	}
 
-	// container name
 	name := containerName(p)
 
-	// container config
 	cfg := &mobycontainer.Config{
 		Image:        p.Image,
 		Env:          envList,
@@ -203,7 +181,6 @@ func RunContainer(runtime string, p Preset, detach bool) (string, error) {
 		cfg.Cmd = p.Cmd
 	}
 
-	// host config
 	hostCfg := &mobycontainer.HostConfig{
 		PortBindings: portBindings,
 	}
@@ -211,7 +188,6 @@ func RunContainer(runtime string, p Preset, detach bool) (string, error) {
 		hostCfg.Binds = p.Volumes
 	}
 
-	// create
 	resp, err := cli.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config:     cfg,
 		HostConfig: hostCfg,
@@ -221,7 +197,6 @@ func RunContainer(runtime string, p Preset, detach bool) (string, error) {
 		return "", fmt.Errorf("create: %w", err)
 	}
 
-	// start
 	if _, err := cli.ContainerStart(ctx, resp.ID, client.ContainerStartOptions{}); err != nil {
 		return resp.ID, fmt.Errorf("start: %w", err)
 	}
@@ -229,7 +204,6 @@ func RunContainer(runtime string, p Preset, detach bool) (string, error) {
 	return resp.ID, nil
 }
 
-// runContainerCLI is the fallback using docker/podman CLI.
 func runContainerCLI(runtime string, p Preset, detach bool) (string, error) {
 	args := []string{"run"}
 	if detach {
@@ -257,9 +231,7 @@ func runContainerCLI(runtime string, p Preset, detach bool) (string, error) {
 	return strings.TrimSpace(string(out)), err
 }
 
-// ── Image search ──
 
-// SearchImages searches the registry for images.
 func SearchImages(runtime, query string) ([]string, error) {
 	if query == "" {
 		return nil, nil
@@ -282,7 +254,6 @@ func SearchImages(runtime, query string) ([]string, error) {
 		}
 	}
 
-	// fallback to CLI
 	args := []string{"search", "--limit", "15", "--format", "{{.Name}}", query}
 	out, err := exec.Command(runtime, args...).Output()
 	if err != nil {
@@ -312,7 +283,6 @@ func SearchImages(runtime, query string) ([]string, error) {
 	return results, nil
 }
 
-// ListTags fetches available tags for an image (best-effort).
 func ListTags(runtime, img string) []string {
 	out, err := exec.Command("skopeo", "list-tags", "docker://docker.io/"+img).Output()
 	if err == nil {
@@ -370,9 +340,7 @@ func parsePodmanTags(raw string) []string {
 	return tags
 }
 
-// ── Helpers ──
 
-// containerName returns the container name — uses Name field or sanitized Label, no prefix.
 func containerName(p Preset) string {
 	name := p.Name
 	if name == "" {
@@ -381,7 +349,6 @@ func containerName(p Preset) string {
 	return name
 }
 
-// sanitizeName creates a clean name from a label.
 func sanitizeName(label string) string {
 	label = strings.ToLower(label)
 	var b strings.Builder
@@ -400,7 +367,6 @@ func sanitizeName(label string) string {
 	return s
 }
 
-// BuildRunCommand returns the full CLI command string (for display/copy).
 func BuildRunCommand(runtime string, p Preset, detach bool) string {
 	parts := []string{runtime, "run"}
 	if detach {
