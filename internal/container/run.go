@@ -2,7 +2,6 @@ package container
 
 import (
 	"context"
-	"embed"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,8 +15,6 @@ import (
 	"github.com/moby/moby/client"
 )
 
-var presetsJSON embed.FS
-
 type Preset struct {
 	Label    string            `json:"label"`
 	Image    string            `json:"image"`
@@ -30,12 +27,8 @@ type Preset struct {
 }
 
 func LoadPresets() []Preset {
-	data, err := presetsJSON.ReadFile("presets.json")
-	if err != nil {
-		return []Preset{{Label: "Custom image...", Image: ""}}
-	}
 	var presets []Preset
-	if err := json.Unmarshal(data, &presets); err != nil {
+	if err := json.Unmarshal(presetsData, &presets); err != nil {
 		return []Preset{{Label: "Custom image...", Image: ""}}
 	}
 	presets = append(presets, Preset{Label: "Custom image...", Image: ""})

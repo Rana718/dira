@@ -116,7 +116,3 @@ func runInstant(name string) error {
 	}
 	return nil
 }
-
-func init() {
-	rootCmd.AddCommand(runCmd)
-}

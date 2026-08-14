@@ -4,17 +4,24 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
 )
 
-var Tasks = []string{
-	"sudo paccache -rk1",
-	"sudo pacman -Rns $(pacman -Qdtq)",
-	"journalctl --vacuum-time=2weeks",
-	"sudo rm -rf /tmp/*",
-	"rm -rf ~/.local/share/Trash/*",
-	"rm -rf ~/.cache/thumbnails/",
-	"rm -rf /home/rana/.bun/install/cache/",
+func tasks() []string {
+	home, _ := os.UserHomeDir()
+	bunCache := filepath.Join(home, ".bun", "install", "cache")
+	trash := filepath.Join(home, ".local", "share", "Trash", "*")
+	thumbnails := filepath.Join(home, ".cache", "thumbnails")
+	return []string{
+		"sudo paccache -rk1",
+		"sudo pacman -Rns $(pacman -Qdtq)",
+		"journalctl --vacuum-time=2weeks",
+		"sudo rm -rf /tmp/*",
+		"rm -rf " + trash,
+		"rm -rf " + thumbnails,
+		"rm -rf " + bunCache,
+	}
 }
 
 func RunAll() {
@@ -24,7 +31,7 @@ func RunAll() {
 	}
 
 	var wg sync.WaitGroup
-	for _, cmd := range Tasks {
+	for _, cmd := range tasks() {
 		wg.Add(1)
 		go func(c string) {
 			defer wg.Done()

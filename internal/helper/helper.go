@@ -6,10 +6,12 @@ import (
 )
 
 func Pad(s string, width int) string {
-	if len(s) >= width {
+	// Use rune count so multi-byte characters (e.g. "…") don't break column math.
+	r := len([]rune(s))
+	if r >= width {
 		return s
 	}
-	return s + strings.Repeat(" ", width-len(s))
+	return s + strings.Repeat(" ", width-r)
 }
 
 func PadR(s string, width int) string {

@@ -2,17 +2,18 @@ package container
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
 	"strings"
 	"time"
 
-	"github.com/Rana718/dira/internal/helper"
 	"github.com/Rana718/dira/internal/tui"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
+
+// ─── Styles ──────────────────────────────────────────────────────────────────
 
 var (
 	ctHdr    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("99"))
@@ -29,18 +30,47 @@ var (
 	ctCPU    = lipgloss.NewStyle().Foreground(lipgloss.Color("212"))
 	ctMem    = lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
 	ctNet    = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
+	ctBlue   = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
+	ctOrange = lipgloss.NewStyle().Foreground(lipgloss.Color("208"))
+	ctPaused = lipgloss.NewStyle().Foreground(lipgloss.Color("226"))
+	ctTabAct = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212")).Underline(true)
+	ctTabInc = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	ctInput  = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
 )
 
+// ─── Tab enum ────────────────────────────────────────────────────────────────
 
-type Mode int
+type Tab int
 
 const (
-	ModeList Mode = iota
-	ModeLogs
-	ModeInfo
-	ModeVolumes
-	ModeHistory
+	TabContainers Tab = iota
+	TabImages
+	TabVolumes
+	TabNetworks
 )
+
+var tabNames = []string{"Containers", "Images", "Volumes", "Networks"}
+
+// ─── Screen / overlay mode ───────────────────────────────────────────────────
+
+type ScreenMode int
+
+const (
+	ScreenList ScreenMode = iota
+	ScreenLogs
+	ScreenInfo
+	ScreenVolumes  // container's own volume view
+	ScreenNetworks // container's own network view
+	ScreenHistory
+	ScreenRename
+	ScreenConfirmDel
+	ScreenNetCreate
+	ScreenVolCreate
+	ScreenNetEdit       // connect container → network
+	ScreenNetDisconnect // disconnect container from network
+)
+
+// ─── Messages ────────────────────────────────────────────────────────────────
 
 type ContentMsg struct{ Text, Err string }
 type StatsTickMsg struct{}
@@ -53,55 +83,208 @@ func StatsTickCmd() tea.Cmd {
 	})
 }
 
+// ─── Model ───────────────────────────────────────────────────────────────────
 
 type Model struct {
-	Containers []Container
-	StatsMap   map[string]Stats
-	Cursor     int
-	Screen     Mode
-	VP         viewport.Model
+	// tab
+	ActiveTab Tab
+
+	// containers
+	Containers      []Container
+	ContainerCursor int
+	ContainerFilter string
+	ContainerSearch bool
+	StatsMap        map[string]Stats
+
+	// images
+	Images      []Image
+	ImageCursor int
+	ImageFilter string
+	ImageSearch bool
+
+	// volumes
+	Volumes      []Volume
+	VolumeCursor int
+	VolumeFilter string
+	VolumeSearch bool
+
+	// networks
+	Networks      []Network
+	NetworkCursor int
+	NetworkFilter string
+	NetworkSearch bool
+
+	// sub-screen / overlay
+	Screen  ScreenMode
+	VP      viewport.Model
+	Loading bool
+	Err     string
+
+	// rename / create input
+	Input    textinput.Model
+	InputCtx string // context label
+
+	// confirm-delete
+	ConfirmTarget string // "name (id)"
+
+	// window
 	WinW, WinH int
-	Err        string
-	Loading    bool
 }
 
-func NewModel() Model {
-	return Model{
+func NewModel() Model         { return newModelWithTab(TabContainers) }
+func NewImagesModel() Model   { return newModelWithTab(TabImages) }
+func NewVolumesModel() Model  { return newModelWithTab(TabVolumes) }
+func NewNetworksModel() Model { return newModelWithTab(TabNetworks) }
+
+func newModelWithTab(tab Tab) Model {
+	inp := textinput.New()
+	inp.CharLimit = 80
+	inp.Width = 40
+
+	m := Model{
+		ActiveTab:  tab,
 		Containers: List(),
+		Images:     ListImages(),
+		Volumes:    ListVolumes(),
+		Networks:   ListNetworks(),
 		StatsMap:   map[string]Stats{},
 		VP:         viewport.New(80, 20),
+		Input:      inp,
 	}
+	return m
 }
 
 func (m Model) Init() tea.Cmd { return StatsTickCmd() }
 
-func (m Model) Selected() *Container {
-	if len(m.Containers) == 0 || m.Cursor >= len(m.Containers) {
+// ─── helpers ─────────────────────────────────────────────────────────────────
+
+func (m Model) selectedContainer() *Container {
+	filtered := m.filteredContainers()
+	if len(filtered) == 0 || m.ContainerCursor >= len(filtered) {
 		return nil
 	}
-	c := m.Containers[m.Cursor]
+	c := filtered[m.ContainerCursor]
 	return &c
 }
+
+func (m Model) selectedImage() *Image {
+	filtered := m.filteredImages()
+	if len(filtered) == 0 || m.ImageCursor >= len(filtered) {
+		return nil
+	}
+	img := filtered[m.ImageCursor]
+	return &img
+}
+
+func (m Model) selectedVolume() *Volume {
+	filtered := m.filteredVolumes()
+	if len(filtered) == 0 || m.VolumeCursor >= len(filtered) {
+		return nil
+	}
+	v := filtered[m.VolumeCursor]
+	return &v
+}
+
+func (m Model) selectedNetwork() *Network {
+	filtered := m.filteredNetworks()
+	if len(filtered) == 0 || m.NetworkCursor >= len(filtered) {
+		return nil
+	}
+	n := filtered[m.NetworkCursor]
+	return &n
+}
+
+func (m Model) filteredContainers() []Container {
+	if m.ContainerFilter == "" {
+		return m.Containers
+	}
+	f := strings.ToLower(m.ContainerFilter)
+	var out []Container
+	for _, c := range m.Containers {
+		if strings.Contains(strings.ToLower(c.Name), f) ||
+			strings.Contains(strings.ToLower(c.Image), f) ||
+			strings.Contains(strings.ToLower(c.ID), f) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func (m Model) filteredImages() []Image {
+	if m.ImageFilter == "" {
+		return m.Images
+	}
+	f := strings.ToLower(m.ImageFilter)
+	var out []Image
+	for _, img := range m.Images {
+		if strings.Contains(strings.ToLower(img.Repo), f) ||
+			strings.Contains(strings.ToLower(img.Tag), f) ||
+			strings.Contains(strings.ToLower(img.ID), f) {
+			out = append(out, img)
+		}
+	}
+	return out
+}
+
+func (m Model) filteredVolumes() []Volume {
+	if m.VolumeFilter == "" {
+		return m.Volumes
+	}
+	f := strings.ToLower(m.VolumeFilter)
+	var out []Volume
+	for _, v := range m.Volumes {
+		if strings.Contains(strings.ToLower(v.Name), f) ||
+			strings.Contains(strings.ToLower(v.Driver), f) {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+func (m Model) filteredNetworks() []Network {
+	if m.NetworkFilter == "" {
+		return m.Networks
+	}
+	f := strings.ToLower(m.NetworkFilter)
+	var out []Network
+	for _, n := range m.Networks {
+		if strings.Contains(strings.ToLower(n.Name), f) ||
+			strings.Contains(strings.ToLower(n.Driver), f) {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+func clamp(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}
+
+// ─── Update ──────────────────────────────────────────────────────────────────
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.WinW = msg.Width
-		m.WinH = msg.Height
+		m.WinW, m.WinH = msg.Width, msg.Height
 		m.VP.Width = msg.Width - 2
-		m.VP.Height = msg.Height - 5
+		m.VP.Height = msg.Height - 7
 		return m, nil
 
 	case StatsTickMsg:
-		containers := m.Containers
+		cs := m.Containers
 		return m, func() tea.Msg {
 			result := map[string]Stats{}
-			for _, c := range containers {
+			for _, c := range cs {
 				if !c.Running {
 					continue
 				}
-				s, err := GetStats(c.Runtime, c.ID)
-				if err == nil {
+				if s, err := GetStats(c.Runtime, c.ID); err == nil {
 					result[c.ID] = s
 				}
 			}
@@ -124,14 +307,43 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err != nil {
 			m.Err = msg.Err.Error()
 		} else {
-			m.Containers = List()
 			m.Err = ""
+			m.Containers = List()
+			m.Images = ListImages()
+			m.Volumes = ListVolumes()
+			m.Networks = ListNetworks()
 		}
 		return m, nil
 
 	case tea.KeyMsg:
-		if m.Screen != ModeList {
+		// overlay screens first
+		if m.Screen == ScreenRename || m.Screen == ScreenNetCreate || m.Screen == ScreenVolCreate {
+			return m.updateInput(msg)
+		}
+		if m.Screen == ScreenConfirmDel {
+			return m.updateConfirmDel(msg)
+		}
+		if m.Screen != ScreenList {
 			return m.updateSubView(msg)
+		}
+		// search modes
+		switch m.ActiveTab {
+		case TabContainers:
+			if m.ContainerSearch {
+				return m.updateContainerSearch(msg)
+			}
+		case TabImages:
+			if m.ImageSearch {
+				return m.updateImageSearch(msg)
+			}
+		case TabVolumes:
+			if m.VolumeSearch {
+				return m.updateVolumeSearch(msg)
+			}
+		case TabNetworks:
+			if m.NetworkSearch {
+				return m.updateNetworkSearch(msg)
+			}
 		}
 		return m.updateList(msg)
 	}
@@ -140,8 +352,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) updateSubView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "q", "esc", "backspace":
-		m.Screen = ModeList
+	case "q", "esc":
+		m.Screen = ScreenList
 		m.Err = ""
 		m.Loading = false
 		m.VP.SetContent("")
@@ -152,42 +364,329 @@ func (m Model) updateSubView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	c := m.Selected()
-	m.Err = ""
+func (m Model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "up", "k":
-		if m.Cursor > 0 {
-			m.Cursor--
+	case "esc", "ctrl+c":
+		m.Screen = ScreenList
+		m.Input.SetValue("")
+		return m, nil
+	case "enter":
+		val := strings.TrimSpace(m.Input.Value())
+		m.Input.SetValue("")
+		m.Screen = ScreenList
+		if val == "" {
+			return m, nil
 		}
-	case "down", "j":
-		if m.Cursor < len(m.Containers)-1 {
-			m.Cursor++
+		switch m.InputCtx {
+		case "rename":
+			c := m.selectedContainer()
+			if c == nil {
+				return m, nil
+			}
+			rt, id := c.Runtime, c.ID
+			return m, func() tea.Msg { return ActionDoneMsg{Err: RenameContainer(rt, id, val)} }
+		case "net-create":
+			rt := m.activeRuntime()
+			return m, func() tea.Msg { return ActionDoneMsg{Err: CreateNetwork(rt, val, "bridge")} }
+		case "vol-create":
+			rt := m.activeRuntime()
+			return m, func() tea.Msg { return ActionDoneMsg{Err: CreateVolume(rt, val)} }
+		case "net-connect":
+			net := m.selectedNetwork()
+			if net == nil {
+				return m, nil
+			}
+			rt, netName := net.Runtime, net.Name
+			return m, func() tea.Msg { return ActionDoneMsg{Err: ConnectNetwork(rt, netName, val)} }
+		case "net-connect-to":
+			net := m.selectedNetwork()
+			if net == nil {
+				return m, nil
+			}
+			rt, netName := net.Runtime, net.Name
+			return m, func() tea.Msg { return ActionDoneMsg{Err: ConnectNetwork(rt, netName, val)} }
+		case "net-disconnect":
+			net := m.selectedNetwork()
+			if net == nil {
+				return m, nil
+			}
+			rt, netName := net.Runtime, net.Name
+			return m, func() tea.Msg { return ActionDoneMsg{Err: DisconnectNetwork(rt, netName, val)} }
+		case "net-disconnect-from":
+			net := m.selectedNetwork()
+			if net == nil {
+				return m, nil
+			}
+			rt, netName := net.Runtime, net.Name
+			return m, func() tea.Msg { return ActionDoneMsg{Err: DisconnectNetwork(rt, netName, val)} }
 		}
-	case "r":
-		m.Containers = List()
+	default:
+		var cmd tea.Cmd
+		m.Input, cmd = m.Input.Update(msg)
+		return m, cmd
+	}
+	return m, nil
+}
+
+func (m Model) updateConfirmDel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "y", "Y":
+		m.Screen = ScreenList
+		target := m.ConfirmTarget
+		switch m.ActiveTab {
+		case TabContainers:
+			c := m.selectedContainer()
+			if c == nil {
+				return m, nil
+			}
+			rt, id := c.Runtime, c.ID
+			return m, func() tea.Msg {
+				_ = Stop(rt, id)
+				return ActionDoneMsg{Err: Delete(rt, id)}
+			}
+		case TabImages:
+			img := m.selectedImage()
+			if img == nil {
+				return m, nil
+			}
+			rt, id := img.Runtime, img.ID
+			return m, func() tea.Msg { return ActionDoneMsg{Err: RemoveImage(rt, id, false)} }
+		case TabVolumes:
+			vol := m.selectedVolume()
+			if vol == nil {
+				return m, nil
+			}
+			rt, name := vol.Runtime, vol.Name
+			return m, func() tea.Msg { return ActionDoneMsg{Err: RemoveVolume(rt, name)} }
+		case TabNetworks:
+			net := m.selectedNetwork()
+			if net == nil {
+				return m, nil
+			}
+			rt, name := net.Runtime, net.Name
+			return m, func() tea.Msg { return ActionDoneMsg{Err: RemoveNetwork(rt, name)} }
+		}
+		_ = target
+	case "n", "N", "esc", "q":
+		m.Screen = ScreenList
+		m.ConfirmTarget = ""
+	}
+	return m, nil
+}
+
+func (m Model) activeRuntime() string {
+	for _, rt := range []string{"docker", "podman"} {
+		if runtimeAvailable(rt) {
+			return rt
+		}
+	}
+	return "docker"
+}
+
+// ─── Search updates ───────────────────────────────────────────────────────────
+
+func (m Model) updateContainerSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "enter":
+		m.ContainerSearch = false
+	case "backspace":
+		if len(m.ContainerFilter) > 0 {
+			m.ContainerFilter = m.ContainerFilter[:len(m.ContainerFilter)-1]
+		}
+	default:
+		if len(msg.String()) == 1 {
+			m.ContainerFilter += msg.String()
+		}
+	}
+	m.ContainerCursor = 0
+	return m, nil
+}
+
+func (m Model) updateImageSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "enter":
+		m.ImageSearch = false
+	case "backspace":
+		if len(m.ImageFilter) > 0 {
+			m.ImageFilter = m.ImageFilter[:len(m.ImageFilter)-1]
+		}
+	default:
+		if len(msg.String()) == 1 {
+			m.ImageFilter += msg.String()
+		}
+	}
+	m.ImageCursor = 0
+	return m, nil
+}
+
+func (m Model) updateVolumeSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "enter":
+		m.VolumeSearch = false
+	case "backspace":
+		if len(m.VolumeFilter) > 0 {
+			m.VolumeFilter = m.VolumeFilter[:len(m.VolumeFilter)-1]
+		}
+	default:
+		if len(msg.String()) == 1 {
+			m.VolumeFilter += msg.String()
+		}
+	}
+	m.VolumeCursor = 0
+	return m, nil
+}
+
+func (m Model) updateNetworkSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "enter":
+		m.NetworkSearch = false
+	case "backspace":
+		if len(m.NetworkFilter) > 0 {
+			m.NetworkFilter = m.NetworkFilter[:len(m.NetworkFilter)-1]
+		}
+	default:
+		if len(msg.String()) == 1 {
+			m.NetworkFilter += msg.String()
+		}
+	}
+	m.NetworkCursor = 0
+	return m, nil
+}
+
+// ─── Main list update ─────────────────────────────────────────────────────────
+
+func (m Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	m.Err = ""
+	key := msg.String()
+
+	// global tab switching
+	switch key {
+	case "1":
+		m.ActiveTab = TabContainers
+		return m, nil
+	case "2":
+		m.ActiveTab = TabImages
+		return m, nil
+	case "3":
+		m.ActiveTab = TabVolumes
+		return m, nil
+	case "4":
+		m.ActiveTab = TabNetworks
+		return m, nil
+	case "tab":
+		m.ActiveTab = (m.ActiveTab + 1) % 4
+		return m, nil
+	case "shift+tab":
+		m.ActiveTab = (m.ActiveTab + 3) % 4
+		return m, nil
 	case "q", "ctrl+c":
 		return m, tea.Quit
-	case "l":
+	}
+
+	switch m.ActiveTab {
+	case TabContainers:
+		return m.updateContainerList(key)
+	case TabImages:
+		return m.updateImageList(key)
+	case TabVolumes:
+		return m.updateVolumeList(key)
+	case TabNetworks:
+		return m.updateNetworkList(key)
+	}
+	return m, nil
+}
+
+// ─── Container list ───────────────────────────────────────────────────────────
+
+func (m Model) updateContainerList(key string) (tea.Model, tea.Cmd) {
+	filtered := m.filteredContainers()
+	c := m.selectedContainer()
+
+	switch key {
+	case "up", "k":
+		m.ContainerCursor = clamp(m.ContainerCursor-1, 0, len(filtered)-1)
+	case "down", "j":
+		m.ContainerCursor = clamp(m.ContainerCursor+1, 0, len(filtered)-1)
+	case "/":
+		m.ContainerSearch = true
+		m.ContainerFilter = ""
+	case "esc":
+		m.ContainerFilter = ""
+	case "r":
+		m.Containers = List()
+	// actions
+	case "S": // start
+		if c == nil || c.Running {
+			break
+		}
+		m.Loading = true
+		rt, id := c.Runtime, c.ID
+		return m, func() tea.Msg { return ActionDoneMsg{Err: Start(rt, id)} }
+	case "s": // stop
+		if c == nil || !c.Running {
+			break
+		}
+		m.Loading = true
+		rt, id := c.Runtime, c.ID
+		return m, func() tea.Msg { return ActionDoneMsg{Err: Stop(rt, id)} }
+	case "R": // restart
 		if c == nil {
 			break
 		}
-		m.Screen = ModeLogs
+		m.Loading = true
+		rt, id := c.Runtime, c.ID
+		return m, func() tea.Msg { return ActionDoneMsg{Err: RestartContainer(rt, id)} }
+	case "p": // pause / unpause
+		if c == nil {
+			break
+		}
+		m.Loading = true
+		rt, id, running := c.Runtime, c.ID, c.Running
+		isPaused := strings.Contains(strings.ToLower(c.Status), "pause")
+		return m, func() tea.Msg {
+			var err error
+			if isPaused {
+				err = UnpauseContainer(rt, id)
+			} else if running {
+				err = PauseContainer(rt, id)
+			}
+			return ActionDoneMsg{Err: err}
+		}
+	case "d": // force delete
+		if c == nil {
+			break
+		}
+		m.Screen = ScreenConfirmDel
+		m.ConfirmTarget = fmt.Sprintf("%s (%s)", c.Name, c.ID)
+	case "e": // exec shell
+		if c == nil || !c.Running {
+			m.Err = "container is not running"
+			break
+		}
+		return m, tea.ExecProcess(
+			exec.Command(c.Runtime, "exec", "-it", c.ID, "/bin/sh"),
+			func(err error) tea.Msg { return ActionDoneMsg{Err: err} },
+		)
+	case "l": // logs
+		if c == nil {
+			break
+		}
+		m.Screen = ScreenLogs
 		m.Loading = true
 		rt, id := c.Runtime, c.ID
 		return m, func() tea.Msg {
-			raw, err := Logs(rt, id, 200)
+			raw, err := Logs(rt, id, 300)
 			errStr := ""
 			if err != nil {
 				errStr = err.Error()
 			}
 			return ContentMsg{Text: tui.ColorizeLogs(raw), Err: errStr}
 		}
-	case "i":
+	case "i": // inspect
 		if c == nil {
 			break
 		}
-		m.Screen = ModeInfo
+		m.Screen = ScreenInfo
 		m.Loading = true
 		rt, id := c.Runtime, c.ID
 		return m, func() tea.Msg {
@@ -197,11 +696,11 @@ func (m Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return ContentMsg{Text: RenderInfo(info)}
 		}
-	case "v":
+	case "v": // container volumes
 		if c == nil {
 			break
 		}
-		m.Screen = ModeVolumes
+		m.Screen = ScreenVolumes
 		m.Loading = true
 		rt, id := c.Runtime, c.ID
 		return m, func() tea.Msg {
@@ -211,47 +710,22 @@ func (m Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return ContentMsg{Text: RenderVolumes(info)}
 		}
-	case "d":
+	case "n": // container networks
 		if c == nil {
 			break
 		}
-		if c.Running {
-			m.Err = "stop the container first before deleting"
-			break
-		}
+		m.Screen = ScreenNetworks
 		m.Loading = true
 		rt, id := c.Runtime, c.ID
-		return m, func() tea.Msg { return ActionDoneMsg{Err: Delete(rt, id)} }
-	case "s":
-		if c == nil || !c.Running {
-			m.Err = "container is not running"
-			break
+		return m, func() tea.Msg {
+			nets := ContainerNetworks(rt, id)
+			return ContentMsg{Text: renderContainerNetworks(nets, id)}
 		}
-		m.Loading = true
-		rt, id := c.Runtime, c.ID
-		return m, func() tea.Msg { return ActionDoneMsg{Err: Stop(rt, id)} }
-	case "S":
-		if c == nil || c.Running {
-			m.Err = "container is already running"
-			break
-		}
-		m.Loading = true
-		rt, id := c.Runtime, c.ID
-		return m, func() tea.Msg { return ActionDoneMsg{Err: Start(rt, id)} }
-	case "e":
-		if c == nil || !c.Running {
-			m.Err = "container is not running"
-			break
-		}
-		return m, tea.ExecProcess(
-			exec.Command(c.Runtime, "exec", "-it", c.ID, "/bin/sh"),
-			func(err error) tea.Msg { return ActionDoneMsg{Err: err} },
-		)
-	case "h":
+	case "h": // image history
 		if c == nil {
 			break
 		}
-		m.Screen = ModeHistory
+		m.Screen = ScreenHistory
 		m.Loading = true
 		rt, img := c.Runtime, c.Image
 		return m, func() tea.Msg {
@@ -261,7 +735,7 @@ func (m Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return ContentMsg{Text: renderHistory(layers)}
 		}
-	case "c":
+	case "c": // edit file in container
 		if c == nil || !c.Running {
 			m.Err = "container must be running to edit files"
 			break
@@ -269,352 +743,213 @@ func (m Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		rt, id, name := c.Runtime, c.ID, c.Name
 		return m, tea.ExecProcess(
 			exec.Command("/bin/sh", "-c", editFileScript(rt, id, name)),
-			func(err error) tea.Msg {
-				return ActionDoneMsg{Err: err}
-			},
+			func(err error) tea.Msg { return ActionDoneMsg{Err: err} },
 		)
+	case "N": // rename
+		if c == nil {
+			break
+		}
+		m.Screen = ScreenRename
+		m.InputCtx = "rename"
+		m.Input.Placeholder = "new container name"
+		m.Input.SetValue("")
+		m.Input.Focus()
+		return m, textinput.Blink
 	}
 	return m, nil
 }
 
+// ─── Image list ───────────────────────────────────────────────────────────────
 
-func (m Model) Render() string {
-	helpBar := m.renderHelp()
-	var body string
-	switch m.Screen {
-	case ModeLogs:
-		body = m.subView("Logs", "  ↑/↓/PgUp/PgDn scroll · esc back")
-	case ModeInfo:
-		body = m.subView("Info", "  ↑/↓ scroll · esc back")
-	case ModeVolumes:
-		body = m.subView("Volumes / Mounts", "  ↑/↓ scroll · esc back")
-	case ModeHistory:
-		body = m.subView("Image History", "  ↑/↓ scroll · esc back")
-	default:
-		body = m.viewList()
-	}
-	fill := m.WinH - strings.Count(body, "\n") - 1 - strings.Count(helpBar, "\n") - 1
-	if fill < 0 {
-		fill = 0
-	}
-	return body + strings.Repeat("\n", fill) + helpBar
-}
+func (m Model) updateImageList(key string) (tea.Model, tea.Cmd) {
+	filtered := m.filteredImages()
+	img := m.selectedImage()
 
-func (m Model) renderHelp() string {
-	help := [][]string{
-		{"l", "logs"}, {"i", "info"}, {"v", "volumes"}, {"h", "history"},
-		{"c", "files"}, {"s", "stop"}, {"S", "start"}, {"d", "delete"},
-		{"e", "shell"}, {"r", "refresh"}, {"q", "quit"},
-	}
-	var parts []string
-	for _, h := range help {
-		parts = append(parts, ctYellow.Render(h[0])+" "+ctHelp.Render(h[1]))
-	}
-	return ctBorder.Render(strings.Repeat("─", m.WinW)) + "\n" +
-		"  " + strings.Join(parts, ctDim.Render("  ·  "))
-}
-
-func (m Model) subView(title, helpText string) string {
-	header := ctHdr.Render("── " + title + " " + strings.Repeat("─", max(0, 44-len(title))))
-	scroll := ctDim.Render(fmt.Sprintf(" %d%%", m.scrollPct()))
-	var body string
-	if m.Loading {
-		body = ctDim.Render("  Loading...")
-	} else if m.Err != "" {
-		body = ctRed.Render("  Error: " + m.Err)
-	} else {
-		body = m.VP.View()
-	}
-	return header + "\n" + body + "\n" + ctHelp.Render(helpText) + scroll
-}
-
-func (m Model) scrollPct() int {
-	total := m.VP.TotalLineCount()
-	if total == 0 || total <= m.VP.Height {
-		return 100
-	}
-	return int(float64(m.VP.YOffset) / float64(total-m.VP.Height) * 100)
-}
-
-func (m Model) viewList() string {
-	wName, wID, wRuntime, wStatus, wUptime, wPorts := 18, 12, 8, 9, 16, 14
-	s := ctHdr.Render(
-		"  "+helper.Pad("NAME", wName)+"  "+helper.Pad("ID", wID)+"  "+helper.Pad("RUNTIME", wRuntime)+
-			"  "+helper.Pad("STATUS", wStatus)+"  "+helper.Pad("UPTIME", wUptime)+
-			"  "+helper.Pad("PORTS", wPorts)+"  CPU        MEM",
-	) + "\n"
-	s += ctBorder.Render("  "+strings.Repeat("─", wName+wID+wRuntime+wStatus+wUptime+wPorts+36)) + "\n"
-
-	for i, c := range m.Containers {
-		cursor := "  "
-		nameStyle := ctDim
-		if i == m.Cursor {
-			cursor = "▶ "
-			nameStyle = ctSel
+	switch key {
+	case "up", "k":
+		m.ImageCursor = clamp(m.ImageCursor-1, 0, len(filtered)-1)
+	case "down", "j":
+		m.ImageCursor = clamp(m.ImageCursor+1, 0, len(filtered)-1)
+	case "/":
+		m.ImageSearch = true
+		m.ImageFilter = ""
+	case "esc":
+		m.ImageFilter = ""
+	case "r":
+		m.Images = ListImages()
+	case "d": // remove image
+		if img == nil {
+			break
 		}
-		rtLabel := ctDocker.Render(helper.Pad("[docker]", wRuntime))
-		if c.Runtime == "podman" {
-			rtLabel = ctPodman.Render(helper.Pad("[podman]", wRuntime))
+		m.Screen = ScreenConfirmDel
+		m.ConfirmTarget = fmt.Sprintf("%s:%s (%s)", img.Repo, img.Tag, img.ID)
+	case "D": // force remove image
+		if img == nil {
+			break
 		}
-		statusText := helper.Pad("  stopped", wStatus)
-		status := ctRed.Render(statusText)
-		if c.Running {
-			status = ctGreen.Render(helper.Pad("  running", wStatus))
-		}
-		uptimeStr := strings.TrimSuffix(c.RunningFor, " ago")
-		if uptimeStr == "" {
-			uptimeStr = " "
-		}
-		if len([]rune(uptimeStr)) > wUptime {
-			uptimeStr = string([]rune(uptimeStr)[:wUptime-1]) + "…"
-		}
-		uptimeStr = helper.PadR(uptimeStr, wUptime)
-
-		portsLines := parsePorts(c.Ports, wPorts)
-		firstPort := helper.PadR(portsLines[0], wPorts)
-		portColor := ctDim
-		if c.Ports != "" {
-			portColor = ctNet
-		}
-
-		cpuStr := strings.Repeat(" ", 9)
-		memStr := strings.Repeat(" ", 10)
-		cpuColor, memColor := ctDim, ctDim
-		if st, ok := m.StatsMap[c.ID]; ok && c.Running {
-			cpuStr = helper.Pad(st.CPU, 9)
-			cpuColor = ctCPU
-			memParts := strings.SplitN(st.MemUsage, " / ", 2)
-			memStr = helper.Pad(memParts[0], 10)
-			memColor = ctMem
-		}
-		s += fmt.Sprintf("%s%s  %s  %s  %s  %s  %s  %s  %s\n",
-			cursor,
-			nameStyle.Render(helper.Pad(c.Name, wName)),
-			ctDim.Render(helper.Pad(c.ID, wID)),
-			rtLabel, status,
-			ctValue.Render(uptimeStr),
-			portColor.Render(firstPort),
-			cpuColor.Render(cpuStr),
-			memColor.Render(memStr),
-		)
-		indent := strings.Repeat(" ", 2+wName+2+wID+2+wRuntime+2+wStatus+2+wUptime+2)
-		for _, extra := range portsLines[1:] {
-			s += indent + portColor.Render(helper.PadR(extra, wPorts)) + "\n"
-		}
-	}
-	if len(m.Containers) == 0 {
-		s += ctDim.Render("  No containers found (docker / podman)") + "\n"
-	}
-	if m.Err != "" {
-		s += "\n" + ctRed.Render("  ⚠ "+m.Err) + "\n"
-	}
-	return s
-}
-
-
-func RenderInfo(info InspectInfo) string {
-	kv := func(k, v string) string {
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("244")).Width(16).Render("  "+k+":") +
-			ctValue.Render(v) + "\n"
-	}
-	s := kv("ID", info.ID) + kv("Name", info.Name) + kv("Image", info.Image) +
-		kv("Status", info.Status) + kv("Created", info.Created)
-	r := info.Resources
-	s += "\n" + ctHdr.Render("  Resource Limits:") + "\n"
-	if r.MemoryBytes > 0 {
-		s += kv("Memory limit", helper.FmtBytes(r.MemoryBytes))
-	} else {
-		s += kv("Memory limit", ctDim.Render("unlimited"))
-	}
-	if r.MemorySwapBytes > 0 && r.MemorySwapBytes != r.MemoryBytes {
-		s += kv("Swap limit", helper.FmtBytes(r.MemorySwapBytes))
-	} else if r.MemorySwapBytes == r.MemoryBytes && r.MemoryBytes > 0 {
-		s += kv("Swap limit", ctYellow.Render("disabled (swap = memory)"))
-	}
-	if r.NanoCPUs > 0 {
-		s += kv("CPU limit", fmt.Sprintf("%.2f CPUs", float64(r.NanoCPUs)/1e9))
-	} else {
-		s += kv("CPU limit", ctDim.Render("unlimited"))
-	}
-	if r.CPUShares > 0 {
-		s += kv("CPU shares", fmt.Sprintf("%d", r.CPUShares))
-	}
-	if r.PidsLimit > 0 {
-		s += kv("PID limit", fmt.Sprintf("%d", r.PidsLimit))
-	} else {
-		s += kv("PID limit", ctDim.Render("unlimited"))
-	}
-	if len(info.Mounts) > 0 {
-		s += "\n" + ctHdr.Render("  Mounts:") + "\n"
-		for _, m := range info.Mounts {
-			s += fmt.Sprintf("    %s  →  %s\n", ctDim.Render(m.Source), ctValue.Render(m.Destination))
-		}
-	}
-	if len(info.Env) > 0 {
-		s += "\n" + ctHdr.Render("  Environment:") + "\n"
-		for _, e := range info.Env {
-			parts := strings.SplitN(e, "=", 2)
-			if len(parts) == 2 {
-				s += fmt.Sprintf("    %s = %s\n", ctYellow.Render(parts[0]), ctValue.Render(parts[1]))
-			} else {
-				s += "    " + e + "\n"
+		m.Loading = true
+		rt, id := img.Runtime, img.ID
+		return m, func() tea.Msg { return ActionDoneMsg{Err: RemoveImage(rt, id, true)} }
+	case "P": // prune dangling
+		rt := m.activeRuntime()
+		m.Loading = true
+		return m, func() tea.Msg {
+			out, err := PruneImages(rt)
+			if err != nil {
+				return ActionDoneMsg{Err: err}
 			}
+			return ContentMsg{Text: ctGreen.Render("  ✓ Pruned:\n") + "  " + out}
 		}
-	}
-	return s
-}
-
-func RenderVolumes(info InspectInfo) string {
-	if len(info.Mounts) == 0 {
-		return ctDim.Render("  No volumes or mounts found.")
-	}
-	s := ""
-	for i, m := range info.Mounts {
-		s += ctHdr.Render(fmt.Sprintf("  Mount %d", i+1)) + "\n"
-		s += fmt.Sprintf("    %-16s %s\n", ctDim.Render("Source:"), ctValue.Render(m.Source))
-		s += fmt.Sprintf("    %-16s %s\n", ctDim.Render("Destination:"), ctValue.Render(m.Destination))
-		if m.Mode != "" {
-			s += fmt.Sprintf("    %-16s %s\n", ctDim.Render("Mode:"), ctValue.Render(m.Mode))
+	case "i": // inspect
+		if img == nil {
+			break
 		}
-		s += "\n"
-	}
-	return s
-}
-
-func parsePorts(raw string, wPorts int) []string {
-	if raw == "" {
-		return []string{"—"}
-	}
-
-	seen := map[string]bool{}
-	var unique []string
-	for _, part := range strings.Split(raw, ", ") {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
+		m.Screen = ScreenInfo
+		m.Loading = true
+		rt, id := img.Runtime, img.ID
+		return m, func() tea.Msg {
+			text := ImageInspectText(rt, id)
+			return ContentMsg{Text: text}
 		}
-		norm := part
-		if strings.HasPrefix(part, "[::]:") {
-			ipv4 := strings.Replace(part, "[::]:", "0.0.0.0:", 1)
-			if seen[ipv4] {
-				continue
+	case "h": // history
+		if img == nil {
+			break
+		}
+		m.Screen = ScreenHistory
+		m.Loading = true
+		rt := img.Runtime
+		ref := img.Repo + ":" + img.Tag
+		return m, func() tea.Msg {
+			layers, err := GetImageHistory(rt, ref)
+			if err != nil {
+				return ContentMsg{Err: err.Error()}
 			}
-		}
-		mapped := formatPort(norm)
-		if !seen[mapped] {
-			seen[mapped] = true
-			unique = append(unique, mapped)
+			return ContentMsg{Text: renderHistory(layers)}
 		}
 	}
-
-	if len(unique) == 0 {
-		return []string{"—"}
-	}
-
-	var lines []string
-	line := ""
-	for _, p := range unique {
-		if line == "" {
-			line = p
-		} else if len(line)+2+len(p) <= wPorts {
-			line += " " + p
-		} else {
-			lines = append(lines, helper.PadR(line, wPorts))
-			line = p
-		}
-	}
-	if line != "" {
-		lines = append(lines, line)
-	}
-	return lines
+	return m, nil
 }
 
-func formatPort(s string) string {
-	if idx := strings.LastIndex(s, ":"); idx >= 0 {
-		s = s[idx+1:]
+// ─── Volume list ──────────────────────────────────────────────────────────────
+
+func (m Model) updateVolumeList(key string) (tea.Model, tea.Cmd) {
+	filtered := m.filteredVolumes()
+	vol := m.selectedVolume()
+
+	switch key {
+	case "up", "k":
+		m.VolumeCursor = clamp(m.VolumeCursor-1, 0, len(filtered)-1)
+	case "down", "j":
+		m.VolumeCursor = clamp(m.VolumeCursor+1, 0, len(filtered)-1)
+	case "/":
+		m.VolumeSearch = true
+		m.VolumeFilter = ""
+	case "esc":
+		m.VolumeFilter = ""
+	case "r":
+		m.Volumes = ListVolumes()
+	case "c": // create
+		m.Screen = ScreenVolCreate
+		m.InputCtx = "vol-create"
+		m.Input.Placeholder = "new volume name"
+		m.Input.SetValue("")
+		m.Input.Focus()
+		return m, textinput.Blink
+	case "d": // remove
+		if vol == nil {
+			break
+		}
+		m.Screen = ScreenConfirmDel
+		m.ConfirmTarget = vol.Name
+	case "P": // prune
+		rt := m.activeRuntime()
+		m.Loading = true
+		return m, func() tea.Msg {
+			out, err := PruneVolumes(rt)
+			if err != nil {
+				return ActionDoneMsg{Err: err}
+			}
+			return ContentMsg{Text: ctGreen.Render("  ✓ Pruned:\n") + "  " + out}
+		}
+	case "i": // inspect (show mountpoint)
+		if vol == nil {
+			break
+		}
+		m.Screen = ScreenInfo
+		m.Loading = false
+		m.VP.SetContent(renderVolumeDetail(vol))
+		m.VP.GotoTop()
+		m.Screen = ScreenInfo
 	}
-	s = strings.Replace(s, "->", "→", 1)
-	return s
+	return m, nil
 }
+
+// ─── Network list ─────────────────────────────────────────────────────────────
+
+func (m Model) updateNetworkList(key string) (tea.Model, tea.Cmd) {
+	filtered := m.filteredNetworks()
+	net := m.selectedNetwork()
+
+	switch key {
+	case "up", "k":
+		m.NetworkCursor = clamp(m.NetworkCursor-1, 0, len(filtered)-1)
+	case "down", "j":
+		m.NetworkCursor = clamp(m.NetworkCursor+1, 0, len(filtered)-1)
+	case "/":
+		m.NetworkSearch = true
+		m.NetworkFilter = ""
+	case "esc":
+		m.NetworkFilter = ""
+	case "r":
+		m.Networks = ListNetworks()
+	case "c": // create
+		m.Screen = ScreenNetCreate
+		m.InputCtx = "net-create"
+		m.Input.Placeholder = "new network name"
+		m.Input.SetValue("")
+		m.Input.Focus()
+		return m, textinput.Blink
+	case "e": // connect container → this network
+		if net == nil {
+			break
+		}
+		m.Screen = ScreenNetEdit
+		m.InputCtx = "net-connect-to"
+		m.Input.Placeholder = "container name or ID"
+		m.Input.SetValue("")
+		m.Input.Focus()
+		return m, textinput.Blink
+	case "x": // disconnect container from this network
+		if net == nil {
+			break
+		}
+		m.Screen = ScreenNetDisconnect
+		m.InputCtx = "net-disconnect-from"
+		m.Input.Placeholder = "container name or ID"
+		m.Input.SetValue("")
+		m.Input.Focus()
+		return m, textinput.Blink
+	case "d": // remove
+		if net == nil {
+			break
+		}
+		m.Screen = ScreenConfirmDel
+		m.ConfirmTarget = net.Name
+	case "i": // inspect
+		if net == nil {
+			break
+		}
+		m.Screen = ScreenInfo
+		m.Loading = true
+		rt, name := net.Runtime, net.Name
+		return m, func() tea.Msg {
+			text := NetworkInspectText(rt, name)
+			return ContentMsg{Text: text}
+		}
+	}
+	return m, nil
+}
+
+// ─── View (delegated to tui_view.go) ─────────────────────────────────────────
 
 func (m Model) View() string { return m.Render() }
-
-func editFileScript(rt, id, name string) string {
-	editor := getEditor()
-	return fmt.Sprintf(`
-set -e
-echo ""
-echo "  ═══ dira: edit container file ═══"
-echo "  Container: %s (%s)"
-echo ""
-echo "  File tree (showing config-relevant paths):"
-echo "  ─────────────────────────────────────────"
-%s exec %s find /etc /app /data /config /opt 2>/dev/null | head -60 || true
-echo ""
-echo "  ─────────────────────────────────────────"
-echo ""
-printf "  Enter file path to edit (or 'q' to cancel): "
-read filepath
-if [ "$filepath" = "q" ] || [ -z "$filepath" ]; then
-    echo "  Cancelled."
-    exit 0
-fi
-# copy file out
-tmpfile=$(mktemp /tmp/dira-edit-XXXXXX)
-%s cp %s:"$filepath" "$tmpfile" 2>/dev/null
-if [ $? -ne 0 ]; then
-    echo "  Error: cannot read $filepath from container"
-    rm -f "$tmpfile"
-    exit 1
-fi
-# open in editor
-%s "$tmpfile"
-# copy back
-%s cp "$tmpfile" %s:"$filepath"
-if [ $? -eq 0 ]; then
-    echo ""
-    echo "  ✓ File updated: $filepath"
-    printf "  Restart container to apply? [y/N]: "
-    read restart
-    if [ "$restart" = "y" ] || [ "$restart" = "Y" ]; then
-        %s restart %s
-        echo "  ✓ Container restarted."
-    fi
-else
-    echo "  ✗ Failed to copy file back."
-fi
-rm -f "$tmpfile"
-`, name, id[:12], rt, id, rt, id, editor, rt, id, rt, id)
-}
-
-func renderHistory(layers []ImageLayer) string {
-	if len(layers) == 0 {
-		return ctDim.Render("  No history available.")
-	}
-	s := ""
-	for i, l := range layers {
-		num := fmt.Sprintf("  %2d.", i+1)
-		s += ctHdr.Render(num) + "  " + ctValue.Render(l.CreatedAt) + "\n"
-		s += "      " + ctDim.Render(l.CreatedBy) + "\n"
-		if l.Size != "" && l.Size != "0B" {
-			s += "      " + ctYellow.Render("size: "+l.Size) + "\n"
-		}
-		s += "\n"
-	}
-	return s
-}
-
-func getEditor() string {
-	if e := os.Getenv("EDITOR"); e != "" {
-		return e
-	}
-	if e := os.Getenv("VISUAL"); e != "" {
-		return e
-	}
-	for _, e := range []string{"vim", "nvim", "nano", "vi"} {
-		if _, err := exec.LookPath(e); err == nil {
-			return e
-		}
-	}
-	return "vi"
-}

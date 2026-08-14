@@ -61,7 +61,10 @@ func printHome(version string) {
 		}},
 		{"Network & Dev", []entry{
 			{"ports", "show open ports and processes"},
-			{"container", "manage Docker / Podman containers"},
+			{"container", "manage containers, images, volumes, networks"},
+			{"images", "manage container images"},
+			{"volumes", "manage container volumes"},
+			{"network", "manage container networks"},
 			{"run", "quick-run a container (redis, postgres…)"},
 		}},
 		{"Desktop", []entry{
@@ -108,6 +111,7 @@ func printColorHelp(cmd *cobra.Command) {
 		}},
 		{"Network & Dev", map[string]bool{
 			"ports": true, "container": true, "run": true,
+			"images": true, "volumes": true, "network": true,
 		}},
 		{"Desktop", map[string]bool{
 			"set-wall": true,
@@ -190,6 +194,7 @@ func init() {
 	rootCmd.AddCommand(
 		keycolorCmd, keymodeCmd, keyspeedCmd, keylightCmd, keystateCmd,
 		powerCmd, infoCmd, portsCmd, containerCmd, diskCmd, serviceCmd,
-		cleanCmd, setwallCmd,
+		cleanCmd, setwallCmd, runCmd,
+		imagesCmd, volumesCmd, networkCmd,
 	)
 }
