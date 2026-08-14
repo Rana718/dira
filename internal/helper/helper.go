@@ -3,23 +3,25 @@ package helper
 import (
 	"fmt"
 	"strings"
+
+	"github.com/mattn/go-runewidth"
 )
 
-func Pad(s string, width int) string {
-	// Use rune count so multi-byte characters (e.g. "…") don't break column math.
-	r := len([]rune(s))
-	if r >= width {
-		return s
+func Width(s string) int { return runewidth.StringWidth(s) }
+
+func PadTo(s string, width int) string {
+	if n := Width(s); n < width {
+		return s + strings.Repeat(" ", width-n)
 	}
-	return s + strings.Repeat(" ", width-r)
+	return s
+}
+
+func Pad(s string, width int) string {
+	return PadTo(s, width)
 }
 
 func PadR(s string, width int) string {
-	r := len([]rune(s))
-	if r >= width {
-		return s
-	}
-	return s + strings.Repeat(" ", width-r)
+	return PadTo(s, width)
 }
 
 func FmtBytes(b int64) string {

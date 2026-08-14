@@ -88,7 +88,13 @@ func (m *Model) selected() *Entry {
 }
 
 func (m *Model) rebuildList() {
-	wName, wActive, wSub, wEnabled := 36, 10, 10, 10
+	wName, wActive, wSub, wEnabled := len("SERVICE"), len("ACTIVE"), len("STATE"), len("ENABLED")
+	for _, svc := range m.Filtered {
+		wName = max(wName, helper.Width(svc.Name))
+		wActive = max(wActive, helper.Width(svc.Active))
+		wSub = max(wSub, helper.Width(svc.Sub))
+		wEnabled = max(wEnabled, helper.Width(svc.Enabled))
+	}
 	var sb strings.Builder
 	for i, svc := range m.Filtered {
 		cursor := "  "
@@ -115,9 +121,6 @@ func (m *Model) rebuildList() {
 			enabledStyle = svcBlue
 		}
 		name := svc.Name
-		if len([]rune(name)) > wName {
-			name = string([]rune(name)[:wName-1]) + "…"
-		}
 		sb.WriteString(fmt.Sprintf("%s%s  %s  %s  %s\n",
 			cursor,
 			nameStyle.Render(helper.PadR(name, wName)),
@@ -346,7 +349,13 @@ func (m Model) Render() string {
 		searchBar = svcBlue.Render("  filter: ") + svcVal.Render(m.Filter) + svcDim.Render("  (esc clear)") + "\n"
 	}
 
-	wName, wActive, wSub, wEnabled := 36, 10, 10, 10
+	wName, wActive, wSub, wEnabled := len("SERVICE"), len("ACTIVE"), len("STATE"), len("ENABLED")
+	for _, svc := range m.Filtered {
+		wName = max(wName, helper.Width(svc.Name))
+		wActive = max(wActive, helper.Width(svc.Active))
+		wSub = max(wSub, helper.Width(svc.Sub))
+		wEnabled = max(wEnabled, helper.Width(svc.Enabled))
+	}
 	header := svcHdr.Render(fmt.Sprintf("  %-*s  %-*s  %-*s  %s",
 		wName, "SERVICE", wActive, "ACTIVE", wSub, "STATE", "ENABLED")) + "\n"
 	div := svcBorder.Render("  "+strings.Repeat("─", wName+wActive+wSub+wEnabled+12)) + "\n"

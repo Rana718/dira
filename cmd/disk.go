@@ -35,9 +35,18 @@ var diskCmd = &cobra.Command{
 }
 
 func printDiskUsage(mounts []disk.Mount) {
+	wMount, wSize, wUsed, wAvail, wFS := len("MOUNT"), len("SIZE"), len("USED"), len("FREE"), len("FILESYSTEM")
+	for _, d := range mounts {
+		parts := strings.Split(d.Mount, "\x00")
+		wMount = max(wMount, helper.Width(parts[0]))
+		wSize = max(wSize, helper.Width(d.Size))
+		wUsed = max(wUsed, helper.Width(d.Used))
+		wAvail = max(wAvail, helper.Width(d.Avail))
+		wFS = max(wFS, helper.Width(d.FSType))
+	}
 	fmt.Println(diskHdr.Render("── Disk Usage ───────────────────────────────────"))
-	fmt.Println(diskHdr.Render(fmt.Sprintf("  %-28s  %-8s  %-8s  %-8s  %-26s  %s", "MOUNT", "SIZE", "USED", "FREE", "USE%", "FILESYSTEM")))
-	fmt.Println(diskDim.Render("  " + strings.Repeat("─", 88)))
+	fmt.Println(diskHdr.Render(fmt.Sprintf("  %-*s  %-*s  %-*s  %-*s  %-26s  %s", wMount, "MOUNT", wSize, "SIZE", wUsed, "USED", wAvail, "FREE", "USE%", "FILESYSTEM")))
+	fmt.Println(diskDim.Render("  " + strings.Repeat("─", wMount+wSize+wUsed+wAvail+wFS+38)))
 	for _, d := range mounts {
 		parts := strings.Split(d.Mount, "\x00")
 		bar := usageBar(d.UsePct, 20)
@@ -47,13 +56,10 @@ func printDiskUsage(mounts []disk.Mount) {
 		} else if d.UsePct >= 75 {
 			pctStyle = diskWarn
 		}
-		fmt.Printf("  %-28s  %-8s  %-8s  %-8s  %s  %s\n",
-			diskVal.Render(helper.Pad(parts[0], 28)),
-			diskVal.Render(helper.Pad(d.Size, 8)),
-			diskVal.Render(helper.Pad(d.Used, 8)),
-			diskVal.Render(helper.Pad(d.Avail, 8)),
+		fmt.Printf("  %s  %s  %s  %s  %s  %s\n",
+			diskVal.Render(helper.Pad(parts[0], wMount)), diskVal.Render(helper.Pad(d.Size, wSize)), diskVal.Render(helper.Pad(d.Used, wUsed)), diskVal.Render(helper.Pad(d.Avail, wAvail)),
 			bar+" "+pctStyle.Render(fmt.Sprintf("%d%%", d.UsePct)),
-			diskDim.Render(d.FSType),
+			diskDim.Render(helper.Pad(d.FSType, wFS)),
 		)
 		for _, extra := range parts[1:] {
 			fmt.Printf("  %s\n", diskDim.Render("  └─ "+extra+"  (same device)"))
@@ -62,9 +68,23 @@ func printDiskUsage(mounts []disk.Mount) {
 }
 
 func printBlockDevices(blocks []disk.BlockDevice) {
+	wName, wSize, wType, wTran, wFS := len("DEVICE"), len("SIZE"), len("TYPE"), len("TRANS"), len("FSTYPE")
+	for _, b := range blocks {
+		driveType := b.Tran
+		if b.Rota {
+			driveType = "HDD"
+		} else if driveType == "" && b.DevType == "disk" {
+			driveType = "SSD"
+		}
+		wName = max(wName, helper.Width(b.Name))
+		wSize = max(wSize, helper.Width(b.Size))
+		wType = max(wType, helper.Width(b.DevType))
+		wTran = max(wTran, helper.Width(driveType))
+		wFS = max(wFS, helper.Width(b.FSType))
+	}
 	fmt.Println(diskHdr.Render("\n── Block Devices ────────────────────────────────"))
-	fmt.Println(diskHdr.Render(fmt.Sprintf("  %-12s  %-8s  %-6s  %-8s  %-20s  %s", "DEVICE", "SIZE", "TYPE", "TRANS", "FSTYPE", "MOUNT / MODEL")))
-	fmt.Println(diskDim.Render("  " + strings.Repeat("─", 78)))
+	fmt.Println(diskHdr.Render(fmt.Sprintf("  %-*s  %-*s  %-*s  %-*s  %-*s  %s", wName, "DEVICE", wSize, "SIZE", wType, "TYPE", wTran, "TRANS", wFS, "FSTYPE", "MOUNT / MODEL")))
+	fmt.Println(diskDim.Render("  " + strings.Repeat("─", wName+wSize+wType+wTran+wFS+23)))
 	for _, b := range blocks {
 		nameStyle := diskDim
 		if b.DevType == "disk" {
@@ -84,12 +104,8 @@ func printBlockDevices(blocks []disk.BlockDevice) {
 				extra = b.Model
 			}
 		}
-		fmt.Printf("  %s  %-8s  %-6s  %-8s  %-20s  %s\n",
-			nameStyle.Render(helper.Pad(b.Name, 12)),
-			diskVal.Render(helper.Pad(b.Size, 8)),
-			diskDim.Render(helper.Pad(b.DevType, 6)),
-			diskVal.Render(helper.Pad(driveType, 8)),
-			diskDim.Render(helper.Pad(b.FSType, 20)),
+		fmt.Printf("  %s  %s  %s  %s  %s  %s\n",
+			nameStyle.Render(helper.Pad(b.Name, wName)), diskVal.Render(helper.Pad(b.Size, wSize)), diskDim.Render(helper.Pad(b.DevType, wType)), diskVal.Render(helper.Pad(driveType, wTran)), diskDim.Render(helper.Pad(b.FSType, wFS)),
 			diskDim.Render(extra),
 		)
 	}

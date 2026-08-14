@@ -2,6 +2,7 @@ package container
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -9,6 +10,25 @@ import (
 
 	"github.com/moby/moby/client"
 )
+
+func ImageEnvironment(rt, id string) (map[string]string, error) {
+	b, err := exec.Command(rt, "image", "inspect", id, "--format", "{{json .Config.Env}}").Output()
+	if err != nil {
+		return nil, fmt.Errorf("inspect image environment: %w", err)
+	}
+	var entries []string
+	if err := json.Unmarshal([]byte(strings.TrimSpace(string(b))), &entries); err != nil {
+		return nil, fmt.Errorf("decode image environment: %w", err)
+	}
+	env := make(map[string]string, len(entries))
+	for _, entry := range entries {
+		key, value, ok := strings.Cut(entry, "=")
+		if ok && key != "" {
+			env[key] = value
+		}
+	}
+	return env, nil
+}
 
 // Image represents a local container image.
 type Image struct {
@@ -184,6 +204,12 @@ func usedVolumeNames(rt string) map[string]bool {
 	for _, line := range strings.Split(string(b), "\n") {
 		for _, part := range strings.Split(line, ",") {
 			name := strings.TrimSpace(part)
+			if idx := strings.IndexByte(name, ':'); idx > 0 {
+				name = name[:idx]
+			}
+			if idx := strings.IndexByte(name, '/'); idx > 0 && !strings.HasPrefix(name, "/") {
+				name = name[:idx]
+			}
 			if name != "" {
 				m[name] = true
 			}

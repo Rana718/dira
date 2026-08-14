@@ -54,6 +54,12 @@ func (m Model) Render() string {
 		body = m.subView("Container Networks", "  q back")
 	case ScreenHistory:
 		body = m.subView("Image History", "  ↑/↓ scroll · q back")
+	case ScreenImageRun:
+		if m.Loading || m.ImageRun == nil {
+			body = ctDim.Render("  Reading image configuration...")
+		} else {
+			body = m.ImageRun.View()
+		}
 	case ScreenRename:
 		body = m.renderInputOverlay("Rename Container", "New name:")
 	case ScreenNetCreate:
@@ -137,7 +143,7 @@ func (m Model) renderInputOverlay(title, label string) string {
 // ─── Confirm delete ───────────────────────────────────────────────────────────
 
 func (m Model) renderConfirm() string {
-	s := ctRed.Render("── Delete ── are you sure? " + strings.Repeat("─", 20)) + "\n\n"
+	s := ctRed.Render("── Delete ── are you sure? "+strings.Repeat("─", 20)) + "\n\n"
 	s += "  " + ctValue.Render(m.ConfirmTarget) + "\n\n"
 	s += ctRed.Render("  ⚠  This cannot be undone.") + "\n\n"
 	s += "  " + ctYellow.Render("y") + ctDim.Render("  confirm") +
@@ -162,7 +168,7 @@ func (m Model) renderHelp() string {
 			}
 		case TabImages:
 			keys = [][]string{
-				{"i", "inspect"}, {"h", "history"},
+				{"S", "start image"}, {"i", "inspect"}, {"h", "history"},
 				{"d", "remove"}, {"D", "force-rm"}, {"P", "prune dangling"},
 				{"/", "filter"}, {"r", "refresh"}, {"q", "quit"},
 			}
@@ -198,30 +204,41 @@ func (m Model) viewContainerList() string {
 	filtered := m.filteredContainers()
 	s := m.searchBar(m.ContainerSearch, m.ContainerFilter)
 
-	// fixed column widths (raw chars, before styling)
-	const (
-		wName   = 20
-		wID     = 12
-		wRT     = 7
-		wStatus = 8
-		wPorts  = 16
-		wCPU    = 8
-		wMem    = 9
-		wNet    = 12
-		wBlk    = 12
-	)
+	wName, wID, wRT, wStatus := len("NAME"), len("ID"), len("RT"), len("STATUS")
+	wPorts, wCPU, wMem, wNet, wBlk := len("PORTS"), len("CPU%"), len("MEM"), len("NET I/O"), len("BLOCK I/O")
+	for _, c := range filtered {
+		wName = max(wName, helper.Width(c.Name))
+		wID = max(wID, helper.Width(c.ID))
+		rt := c.Runtime
+		if rt == "" {
+			rt = "docker"
+		}
+		wRT = max(wRT, helper.Width(rt))
+		status, _ := containerStatus(c)
+		wStatus = max(wStatus, helper.Width(status))
+		for _, port := range parsePorts(c.Ports, 0) {
+			wPorts = max(wPorts, helper.Width(port))
+		}
+		if st, ok := m.StatsMap[c.ID]; ok && c.Running {
+			wCPU = max(wCPU, helper.Width(st.CPU))
+			mem := strings.SplitN(st.MemUsage, " / ", 2)[0]
+			wMem = max(wMem, helper.Width(mem))
+			wNet = max(wNet, helper.Width(st.NetIO))
+			wBlk = max(wBlk, helper.Width(st.BlockIO))
+		}
+	}
 
 	// header — use same widths
 	s += ctHdr.Render(
-		"  " +
-			helper.Pad("NAME", wName) + "  " +
-			helper.Pad("ID", wID) + "  " +
-			helper.Pad("RT", wRT) + "  " +
-			helper.Pad("STATUS", wStatus) + "  " +
-			helper.Pad("PORTS", wPorts) + "  " +
-			helper.Pad("CPU%", wCPU) + "  " +
-			helper.Pad("MEM", wMem) + "  " +
-			helper.Pad("NET I/O", wNet) + "  " +
+		"  "+
+			helper.Pad("NAME", wName)+"  "+
+			helper.Pad("ID", wID)+"  "+
+			helper.Pad("RT", wRT)+"  "+
+			helper.Pad("STATUS", wStatus)+"  "+
+			helper.Pad("PORTS", wPorts)+"  "+
+			helper.Pad("CPU%", wCPU)+"  "+
+			helper.Pad("MEM", wMem)+"  "+
+			helper.Pad("NET I/O", wNet)+"  "+
 			helper.Pad("BLOCK I/O", wBlk),
 	) + "\n"
 	s += sep(m.WinW) + "\n"
@@ -315,24 +332,36 @@ func (m Model) viewImageList() string {
 	filtered := m.filteredImages()
 	s := m.searchBar(m.ImageSearch, m.ImageFilter)
 
-	const (
-		wRepo = 30
-		wTag  = 18
-		wID   = 12
-		wRT   = 7
-		wSize = 10
-		wAge  = 14
-		wUse  = 3
-	)
+	wRepo, wTag, wID, wRT := len("REPOSITORY"), len("TAG"), len("ID"), len("RT")
+	wSize, wAge, wUse := len("SIZE"), len("CREATED"), len("USE")
+	for _, img := range filtered {
+		repo, tag := img.Repo, img.Tag
+		rt := img.Runtime
+		if rt == "" {
+			rt = "docker"
+		}
+		if repo == "<none>" {
+			repo = "<dangling>"
+		}
+		if tag == "<none>" {
+			tag = "—"
+		}
+		wRepo = max(wRepo, helper.Width(repo))
+		wTag = max(wTag, helper.Width(tag))
+		wID = max(wID, helper.Width(img.ID))
+		wRT = max(wRT, helper.Width(rt))
+		wSize = max(wSize, helper.Width(img.Size))
+		wAge = max(wAge, helper.Width(img.Created))
+	}
 
 	s += ctHdr.Render(
-		"  " +
-			helper.Pad("REPOSITORY", wRepo) + "  " +
-			helper.Pad("TAG", wTag) + "  " +
-			helper.Pad("ID", wID) + "  " +
-			helper.Pad("RT", wRT) + "  " +
-			helper.Pad("SIZE", wSize) + "  " +
-			helper.Pad("CREATED", wAge) + "  " +
+		"  "+
+			helper.Pad("REPOSITORY", wRepo)+"  "+
+			helper.Pad("TAG", wTag)+"  "+
+			helper.Pad("ID", wID)+"  "+
+			helper.Pad("RT", wRT)+"  "+
+			helper.Pad("SIZE", wSize)+"  "+
+			helper.Pad("CREATED", wAge)+"  "+
 			helper.Pad("USE", wUse),
 	) + "\n"
 	s += sep(m.WinW) + "\n"
@@ -397,21 +426,26 @@ func (m Model) viewVolumeList() string {
 	filtered := m.filteredVolumes()
 	s := m.searchBar(m.VolumeSearch, m.VolumeFilter)
 
-	const (
-		wName   = 30
-		wDriver = 10
-		wRT     = 7
-		wMount  = 40
-		wUse    = 3
-	)
+	const maxVolumeName, maxMountpoint = 24, 42
+	wName, wDriver, wRT, wMount, wUse := len("NAME"), len("DRIVER"), len("RT"), len("MOUNTPOINT"), len("MOUNTED")
+	for _, v := range filtered {
+		rt := v.Runtime
+		if rt == "" {
+			rt = "docker"
+		}
+		wName = max(wName, helper.Width(trunc(v.Name, maxVolumeName)))
+		wDriver = max(wDriver, helper.Width(v.Driver))
+		wRT = max(wRT, helper.Width(rt))
+		wMount = max(wMount, helper.Width(trunc(v.Mountpoint, maxMountpoint)))
+	}
 
 	s += ctHdr.Render(
-		"  " +
-			helper.Pad("NAME", wName) + "  " +
-			helper.Pad("DRIVER", wDriver) + "  " +
-			helper.Pad("RT", wRT) + "  " +
-			helper.Pad("MOUNTPOINT", wMount) + "  " +
-			helper.Pad("USE", wUse),
+		"  "+
+			helper.Pad("NAME", wName)+"  "+
+			helper.Pad("DRIVER", wDriver)+"  "+
+			helper.Pad("RT", wRT)+"  "+
+			helper.Pad("MOUNTPOINT", wMount)+"  "+
+			helper.Pad("MOUNTED", wUse),
 	) + "\n"
 	s += sep(m.WinW) + "\n"
 
@@ -434,17 +468,18 @@ func (m Model) viewVolumeList() string {
 			rtStyle = ctPodman
 		}
 
-		mp := trunc(v.Mountpoint, wMount)
+		name := trunc(v.Name, maxVolumeName)
+		mp := trunc(v.Mountpoint, maxMountpoint)
 
-		inUseTxt := "—"
+		inUseTxt := "no"
 		inUseSty := ctDim
 		if v.InUse {
-			inUseTxt = "●"
+			inUseTxt = "yes"
 			inUseSty = ctGreen
 		}
 
 		s += cur +
-			col(nameStyle, trunc(v.Name, wName), wName) + "  " +
+			col(nameStyle, name, wName) + "  " +
 			col(ctValue, trunc(v.Driver, wDriver), wDriver) + "  " +
 			col(rtStyle, rt, wRT) + "  " +
 			col(ctDim, mp, wMount) + "  " +
@@ -461,20 +496,25 @@ func (m Model) viewNetworkList() string {
 	filtered := m.filteredNetworks()
 	s := m.searchBar(m.NetworkSearch, m.NetworkFilter)
 
-	const (
-		wName   = 26
-		wID     = 12
-		wDriver = 10
-		wScope  = 8
-		wRT     = 7
-	)
+	wName, wID, wDriver, wScope, wRT := len("NAME"), len("ID"), len("DRIVER"), len("SCOPE"), len("RT")
+	for _, n := range filtered {
+		rt := n.Runtime
+		if rt == "" {
+			rt = "docker"
+		}
+		wName = max(wName, helper.Width(n.Name))
+		wID = max(wID, helper.Width(n.ID))
+		wDriver = max(wDriver, helper.Width(n.Driver))
+		wScope = max(wScope, helper.Width(n.Scope))
+		wRT = max(wRT, helper.Width(rt))
+	}
 
 	s += ctHdr.Render(
-		"  " +
-			helper.Pad("NAME", wName) + "  " +
-			helper.Pad("ID", wID) + "  " +
-			helper.Pad("DRIVER", wDriver) + "  " +
-			helper.Pad("SCOPE", wScope) + "  " +
+		"  "+
+			helper.Pad("NAME", wName)+"  "+
+			helper.Pad("ID", wID)+"  "+
+			helper.Pad("DRIVER", wDriver)+"  "+
+			helper.Pad("SCOPE", wScope)+"  "+
 			helper.Pad("RT", wRT),
 	) + "\n"
 	s += sep(m.WinW) + "\n"
@@ -658,7 +698,7 @@ func renderHistory(layers []ImageLayer) string {
 
 func renderContainerNetworks(nets []string, id string) string {
 	if len(nets) == 0 {
-		return ctDim.Render("  No networks attached to " + id + ".\n\n") +
+		return ctDim.Render("  No networks attached to "+id+".\n\n") +
 			ctDim.Render("  Use  e  in the Networks tab to connect this container.")
 	}
 	s := ctHdr.Render("── Networks attached to "+id+" ─────────────────") + "\n\n"

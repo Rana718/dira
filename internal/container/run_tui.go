@@ -10,7 +10,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-
 var (
 	runTitle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("99"))
 	runSel    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212"))
@@ -23,7 +22,6 @@ var (
 	runLabel  = lipgloss.NewStyle().Foreground(lipgloss.Color("244")).Width(14)
 	runCat    = lipgloss.NewStyle().Foreground(lipgloss.Color("99")).Bold(true)
 )
-
 
 type RunStep int
 
@@ -39,7 +37,6 @@ const (
 	StepDone
 )
 
-
 type EditField int
 
 const (
@@ -50,14 +47,12 @@ const (
 	EditFieldCount
 )
 
-
 type SearchResultMsg struct{ Results []string }
 type TagResultMsg struct{ Tags []string }
 type RunDoneMsg struct {
 	Output string
 	Err    error
 }
-
 
 type RunModel struct {
 	Step    RunStep
@@ -168,6 +163,14 @@ func NewRunModel() RunModel {
 		m.Step = StepDone
 	}
 
+	return m
+}
+
+func NewImageRunModel(runtime, image string, env map[string]string) RunModel {
+	m := NewRunModel()
+	m.Runtime = runtime
+	m.Preset = Preset{Label: image, Image: image, Env: env}
+	m.enterEdit()
 	return m
 }
 
@@ -707,7 +710,6 @@ func QualifyImage(img string) string {
 	}
 	return "docker.io/library/" + img
 }
-
 
 func (m RunModel) View() string {
 	switch m.Step {

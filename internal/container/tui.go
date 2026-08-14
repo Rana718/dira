@@ -68,6 +68,7 @@ const (
 	ScreenVolCreate
 	ScreenNetEdit       // connect container → network
 	ScreenNetDisconnect // disconnect container from network
+	ScreenImageRun
 )
 
 // ─── Messages ────────────────────────────────────────────────────────────────
@@ -76,6 +77,11 @@ type ContentMsg struct{ Text, Err string }
 type StatsTickMsg struct{}
 type AllStatsMsg struct{ Stats map[string]Stats }
 type ActionDoneMsg struct{ Err error }
+type ImageLaunchMsg struct {
+	Runtime, Image string
+	Env            map[string]string
+	Err            error
+}
 
 func StatsTickCmd() tea.Cmd {
 	return tea.Tick(1500*time.Millisecond, func(_ time.Time) tea.Msg {
@@ -101,6 +107,7 @@ type Model struct {
 	ImageCursor int
 	ImageFilter string
 	ImageSearch bool
+	ImageRun    *RunModel
 
 	// volumes
 	Volumes      []Volume
@@ -269,6 +276,16 @@ func clamp(v, lo, hi int) int {
 // ─── Update ──────────────────────────────────────────────────────────────────
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.Screen == ScreenImageRun && m.ImageRun != nil {
+		if key, ok := msg.(tea.KeyMsg); ok && (m.ImageRun.Step == StepDone || key.String() == "esc" || (key.String() == "q" && m.ImageRun.Step == StepPreset)) {
+			m.Screen, m.ImageRun, m.Images = ScreenList, nil, ListImages()
+			return m, nil
+		}
+		updated, cmd := m.ImageRun.Update(msg)
+		run := updated.(RunModel)
+		m.ImageRun = &run
+		return m, cmd
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.WinW, m.WinH = msg.Width, msg.Height
@@ -314,6 +331,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.Networks = ListNetworks()
 		}
 		return m, nil
+	case ImageLaunchMsg:
+		m.Loading = false
+		if msg.Err != nil {
+			m.Screen, m.Err = ScreenList, msg.Err.Error()
+			return m, nil
+		}
+		run := NewImageRunModel(msg.Runtime, msg.Image, msg.Env)
+		run.WinW, run.WinH = m.WinW, m.WinH
+		m.ImageRun = &run
+		return m, textinput.Blink
 
 	case tea.KeyMsg:
 		// overlay screens first
@@ -825,6 +852,20 @@ func (m Model) updateImageList(key string) (tea.Model, tea.Cmd) {
 				return ContentMsg{Err: err.Error()}
 			}
 			return ContentMsg{Text: renderHistory(layers)}
+		}
+	case "S":
+		if img == nil {
+			break
+		}
+		m.Screen, m.Loading = ScreenImageRun, true
+		rt, id := img.Runtime, img.ID
+		ref := img.Repo + ":" + img.Tag
+		if img.Repo == "<none>" || img.Tag == "<none>" {
+			ref = img.ID
+		}
+		return m, func() tea.Msg {
+			env, err := ImageEnvironment(rt, id)
+			return ImageLaunchMsg{Runtime: rt, Image: ref, Env: env, Err: err}
 		}
 	}
 	return m, nil

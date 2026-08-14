@@ -77,21 +77,21 @@ var portsCmd = &cobra.Command{
 			return nil
 		}
 
-		maxPort, maxAddr, maxProc, maxSvc, maxState := 4, 7, 7, 7, 6
+		maxPort, maxAddr, maxProc, maxSvc, maxState := helper.Width("PORT"), helper.Width("ADDRESS"), helper.Width("PROCESS"), helper.Width("SERVICE / PID"), helper.Width("STATE")
 		for _, e := range filtered {
-			if l := len(strconv.Itoa(e.Port)); l > maxPort {
+			if l := helper.Width(strconv.Itoa(e.Port)); l > maxPort {
 				maxPort = l
 			}
-			if l := len(e.Addr); l > maxAddr {
+			if l := helper.Width(e.Addr); l > maxAddr {
 				maxAddr = l
 			}
-			if l := len(e.Process); l > maxProc {
+			if l := helper.Width(e.Process); l > maxProc {
 				maxProc = l
 			}
-			if l := len(e.Service); l > maxSvc {
+			if l := helper.Width(e.Service); l > maxSvc {
 				maxSvc = l
 			}
-			if l := len(e.State); l > maxState {
+			if l := helper.Width(e.State); l > maxState {
 				maxState = l
 			}
 		}
